@@ -1,0 +1,41 @@
+server:
+  port: 8080
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      server:
+        webflux:
+          globalcors:
+            cors-configurations:
+              '[/**]':
+                allowed-origin-patterns: "*"
+                allowed-methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+                allowed-headers: "*"
+          routes:
+            - id: gift-service
+              uri: ${GIFT_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/users/*/wishes,/api/users/*/wishes/**
+            - id: chat-websocket
+              uri: ${CHAT_SERVICE_WS_URL:ws://localhost:8083}
+              predicates:
+                - Path=/ws/**
+            - id: chat-service
+              uri: ${CHAT_SERVICE_URL:http://localhost:8083}
+              predicates:
+                - Path=/api/chat/**
+            - id: notification-service
+              uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8084}
+              predicates:
+                - Path=/api/notifications/**
+            - id: identity-service
+              uri: ${IDENTITY_SERVICE_URL:http://localhost:8081}
+              predicates:
+                - Path=/api/users/**,/api/groups/**,/api/subscriptions/**
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway,metrics
