@@ -20,11 +20,11 @@
 
 | Модуль | Порт | Назначение |
 |---|---:|---|
-| `apiGateway` | 8080 | Единая точка входа, маршрутизация, CORS и correlation ID |
-| `identityService` | 8081 | Пользователи, дни рождения, группы и подписки |
-| `giftService` | 8082 | Списки желаемых подарков |
-| `chatService` | 8083 | Секретные обсуждения подарков и real-time сообщения |
-| `notificationService` | 8084 | Создание и чтение напоминаний |
+| `apiGateway` | 6767 | Единая точка входа, маршрутизация, CORS и correlation ID |
+| `identityService` | 6701 | Пользователи, дни рождения, группы и подписки |
+| `giftService` | 6702 | Списки желаемых подарков |
+| `chatService` | 6703 | Секретные обсуждения подарков и real-time сообщения |
+| `notificationService` | 6704 | Создание и чтение напоминаний |
 
 Каждый stateful-сервис владеет отдельной PostgreSQL-базой и миграциями Flyway.
 Общих JPA entity и общих таблиц между сервисами нет.
@@ -68,15 +68,14 @@ kebab-case, переменные окружения — UPPER_SNAKE_CASE, а SQL
 Из корня проекта:
 
 ```powershell
+Copy-Item .env.example .env
+# Измените DB_PASSWORD в .env
 docker compose -f docker-compose.yml up --build
 ```
 
-Для другого пароля PostgreSQL:
-
-```powershell
-$env:DB_PASSWORD = "change-me"
-docker compose -f docker-compose.yml up --build
-```
+Все порты, адреса сервисов, реквизиты баз данных, Docker images и таймауты
+OpenFeign централизованы в `.env`. Этот файл игнорируется Git; полный шаблон
+хранится в `.env.example`.
 
 Остановка:
 
@@ -99,25 +98,25 @@ docker compose -f docker-compose.yml config --quiet
 
 После запуска:
 
-- Gateway health: http://localhost:8080/actuator/health
-- Identity Swagger UI: http://localhost:8081/swagger-ui.html
-- Gift Swagger UI: http://localhost:8082/swagger-ui.html
-- Chat Swagger UI: http://localhost:8083/swagger-ui.html
-- Notification Swagger UI: http://localhost:8084/swagger-ui.html
+- Gateway health: http://localhost:6767/actuator/health
+- Identity Swagger UI: http://localhost:6701/swagger-ui.html
+- Gift Swagger UI: http://localhost:6702/swagger-ui.html
+- Chat Swagger UI: http://localhost:6703/swagger-ui.html
+- Notification Swagger UI: http://localhost:6704/swagger-ui.html
 
 ## Пример сценария
 
 Создание пользователей:
 
 ```http
-POST http://localhost:8080/api/users
+POST http://localhost:6767/api/users
 Content-Type: application/json
 
 {"name":"Максим","birthDate":"2003-11-18"}
 ```
 
 ```http
-POST http://localhost:8080/api/users
+POST http://localhost:6767/api/users
 Content-Type: application/json
 
 {"name":"Анна","birthDate":"2004-07-15"}
@@ -126,7 +125,7 @@ Content-Type: application/json
 Создание группы:
 
 ```http
-POST http://localhost:8080/api/groups
+POST http://localhost:6767/api/groups
 Content-Type: application/json
 
 {"name":"972501 ТГУ","ownerId":"<maximId>"}
@@ -135,13 +134,13 @@ Content-Type: application/json
 Добавление участника:
 
 ```http
-PUT http://localhost:8080/api/groups/<groupId>/members/<annaId>
+PUT http://localhost:6767/api/groups/<groupId>/members/<annaId>
 ```
 
 Подписка на группу:
 
 ```http
-POST http://localhost:8080/api/subscriptions
+POST http://localhost:6767/api/subscriptions
 Content-Type: application/json
 
 {"subscriberId":"<maximId>","targetType":"GROUP","targetId":"<groupId>"}
@@ -150,7 +149,7 @@ Content-Type: application/json
 Добавление желания:
 
 ```http
-POST http://localhost:8080/api/users/<annaId>/wishes
+POST http://localhost:6767/api/users/<annaId>/wishes
 Content-Type: application/json
 
 {
@@ -164,19 +163,19 @@ Content-Type: application/json
 Карточка друга:
 
 ```http
-GET http://localhost:8080/api/users/<annaId>/card
+GET http://localhost:6767/api/users/<annaId>/card
 ```
 
 Напоминания:
 
 ```http
-POST http://localhost:8080/api/notifications/users/<maximId>/refresh?days=30
+POST http://localhost:6767/api/notifications/users/<maximId>/refresh?days=30
 ```
 
 Сообщение в секретный чат:
 
 ```http
-POST http://localhost:8080/api/chat/users/<annaId>/messages
+POST http://localhost:6767/api/chat/users/<annaId>/messages
 Content-Type: application/json
 
 {"authorId":"<maximId>","text":"Предлагаю подарить первый пункт из списка"}
@@ -186,7 +185,7 @@ Content-Type: application/json
 
 ### Real-time чат
 
-- STOMP endpoint: `ws://localhost:8080/ws`
+- STOMP endpoint: `ws://localhost:6767/ws`
 - отправка: `/app/chat/<birthdayUserId>`
 - подписка: `/topic/chat/<birthdayUserId>`
 - payload: `{"authorId":"<authorId>","text":"..."}`
