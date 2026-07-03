@@ -15,7 +15,7 @@ public class SecurityConfiguration {
         return http
                 .authorizeExchange(authorizeExchange -> authorizeExchange
                         .pathMatchers("/", "/index.html", "/app.js", "/styles.css", "/actuator/health/**",
-                                "/actuator/info")
+                                "/actuator/info", "/api/auth/**")
                         .permitAll()
                         .pathMatchers("/internal/**").denyAll()
                         .pathMatchers("/api/**").authenticated()

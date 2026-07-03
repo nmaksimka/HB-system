@@ -38,6 +38,12 @@ spring:
 clients:
   gift:
     url: ${GIFT_SERVICE_URL:http://localhost:6702}
+birthday:
+  keycloak:
+    base-url: ${KEYCLOAK_ADMIN_URL:http://localhost:8080}
+    realm: ${KEYCLOAK_REALM:birthday-hub}
+    admin-username: ${KEYCLOAK_ADMIN_USERNAME:admin}
+    admin-password: ${KEYCLOAK_ADMIN_PASSWORD:admin}
 management:
   endpoint:
     health:

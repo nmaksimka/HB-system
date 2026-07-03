@@ -38,6 +38,12 @@ public class IdentityController {
     @GetMapping("/me")
     UserResponse me(@AuthenticationPrincipal Jwt jwt) { return mapper.toResponse(service.user(currentUser.id(jwt))); }
 
+    @PostMapping("/me/profile")
+    @ResponseStatus(HttpStatus.CREATED)
+    UserResponse createProfile(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody CreateUserRequest request) {
+        return mapper.toResponse(service.createProfile(currentUser.id(jwt), request.name(), request.birthDate()));
+    }
+
     @GetMapping("/users/{id}")
     UserResponse user(@PathVariable UUID id) { return mapper.toResponse(service.user(id)); }
 
@@ -79,7 +85,7 @@ public class IdentityController {
     @PostMapping("/subscriptions/groups/{groupId}")
     @ResponseStatus(HttpStatus.CREATED)
     SubscriptionResponse subscribeGroup(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID groupId) {
-        return mapper.toResponse(service.subscribe(currentUser.id(jwt), Subscription.TargetType.GROUP, groupId));
+        return mapper.toResponse(service.subscribeGroupAndMembers(currentUser.id(jwt), groupId));
     }
 
     @DeleteMapping("/subscriptions/users/{targetUserId}")
