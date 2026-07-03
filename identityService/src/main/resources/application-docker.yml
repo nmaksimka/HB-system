@@ -1,0 +1,8 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://identityDb:5432/identity
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+clients:
+  gift:
+    url: http://giftService:8082
