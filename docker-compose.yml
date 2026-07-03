@@ -16,9 +16,24 @@ x-service: &service
   env_file:
     - path: .env
       required: false
+  environment:
+    OAUTH2_ISSUER_URI: ${OAUTH2_ISSUER_URI:-http://localhost:8080/realms/birthday-hub}
+    OAUTH2_JWK_SET_URI: ${OAUTH2_JWK_SET_URI:-http://keycloak:8080/realms/birthday-hub/protocol/openid-connect/certs}
   networks: [birthdayNetwork]
 
 services:
+  keycloak:
+    image: ${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.2}
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HEALTH_ENABLED: "true"
+    ports: ["${KEYCLOAK_PORT:-8080}:8080"]
+    volumes:
+      - ./infra/keycloak:/opt/keycloak/data/import:ro
+    networks: [birthdayNetwork]
+
   identityDb:
     <<: *database
     environment:
@@ -62,6 +77,8 @@ services:
       context: .
       dockerfile: identityService/Dockerfile
     depends_on:
+      keycloak:
+        condition: service_started
       identityDb:
         condition: service_healthy
       giftService:
@@ -81,6 +98,8 @@ services:
       context: .
       dockerfile: giftService/Dockerfile
     depends_on:
+      keycloak:
+        condition: service_started
       giftDb:
         condition: service_healthy
     ports: ["${GIFT_SERVICE_PORT:-6702}:${GIFT_SERVICE_PORT:-6702}"]
@@ -98,6 +117,8 @@ services:
       context: .
       dockerfile: chatService/Dockerfile
     depends_on:
+      keycloak:
+        condition: service_started
       chatDb:
         condition: service_healthy
     ports: ["${CHAT_SERVICE_PORT:-6703}:${CHAT_SERVICE_PORT:-6703}"]
@@ -115,6 +136,8 @@ services:
       context: .
       dockerfile: notificationService/Dockerfile
     depends_on:
+      keycloak:
+        condition: service_started
       notificationDb:
         condition: service_healthy
       identityService:
@@ -134,6 +157,8 @@ services:
       context: .
       dockerfile: apiGateway/Dockerfile
     depends_on:
+      keycloak:
+        condition: service_started
       identityService:
         condition: service_healthy
       giftService:
