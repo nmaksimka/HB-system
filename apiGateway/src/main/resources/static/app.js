@@ -14,6 +14,8 @@ const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
 const els = {
   currentUserSelect: $("#currentUserSelect"),
+  tokenForm: $("#tokenForm"),
+  accessTokenInput: $("#accessTokenInput"),
   createUserForm: $("#createUserForm"),
   refreshAllButton: $("#refreshAllButton"),
   refreshRemindersButton: $("#refreshRemindersButton"),
@@ -50,9 +52,11 @@ function selectedUser() {
 }
 
 function api(path, options = {}) {
+  const accessToken = localStorage.getItem("birthdayHub.accessToken") || "";
   return fetch(path, {
     headers: {
       "Content-Type": "application/json",
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...(options.headers || {}),
     },
     ...options,
@@ -67,6 +71,8 @@ function api(path, options = {}) {
     return data;
   });
 }
+
+els.accessTokenInput.value = localStorage.getItem("birthdayHub.accessToken") || "";
 
 function formatDate(value) {
   if (!value) return "Дата не указана";
@@ -131,7 +137,7 @@ async function loadCoreData() {
 async function refreshReminders() {
   if (!state.currentUserId) return;
   const days = Number(els.reminderDays.value || 30);
-  state.reminders = await api(`/api/notifications/users/${state.currentUserId}/refresh?days=${days}`, {
+  state.reminders = await api(`/api/notifications/refresh?days=${days}`, {
     method: "POST",
   });
   renderReminders();
@@ -224,7 +230,7 @@ async function loadCurrentUserWishes() {
     els.myWishesList.innerHTML = empty("Сначала создайте или выберите пользователя");
     return;
   }
-  const wishes = await api(`/api/users/${state.currentUserId}/wishes`);
+  const wishes = await api("/api/me/wishes");
   els.myWishesList.innerHTML = renderWishes(wishes, true);
 }
 
@@ -259,14 +265,8 @@ function renderReminders() {
 
 async function subscribe(targetType, targetId) {
   if (!state.currentUserId) throw new Error("Выберите текущего пользователя");
-  await api("/api/subscriptions", {
-    method: "POST",
-    body: JSON.stringify({
-      subscriberId: state.currentUserId,
-      targetType,
-      targetId,
-    }),
-  });
+  const targetPath = targetType === "USER" ? "users" : "groups";
+  await api(`/api/subscriptions/${targetPath}/${targetId}`, { method: "POST" });
   showToast(targetType === "USER" ? "Подписка на друга создана" : "Подписка на группу создана");
 }
 
@@ -285,7 +285,7 @@ async function loadChat() {
   }
 
   try {
-    const messages = await api(`/api/chat/users/${friend.id}/messages?viewerId=${me.id}`);
+    const messages = await api(`/api/chat/users/${friend.id}/messages`);
     renderMessages(messages);
     connectChatSocket(friend.id);
   } catch (error) {
@@ -411,6 +411,14 @@ els.currentUserSelect.addEventListener("change", async (event) => {
   await Promise.all([refreshReminders(), loadCurrentUserWishes()]);
 });
 
+els.tokenForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  localStorage.setItem("birthdayHub.accessToken", els.accessTokenInput.value.trim());
+  showToast("Token сохранен");
+  await loadCoreData();
+  await refreshReminders();
+});
+
 els.refreshAllButton.addEventListener("click", async () => {
   await loadCoreData();
   await refreshReminders();
@@ -440,7 +448,7 @@ document.addEventListener("click", async (event) => {
       await renderFriendCard();
     }
     if (joinGroupId) {
-      await api(`/api/groups/${joinGroupId}/members/${state.currentUserId}`, { method: "PUT" });
+      await api(`/api/groups/${joinGroupId}/members/me`, { method: "PUT" });
       showToast("Вы вступили в группу");
       await renderFriendCard();
     }
@@ -449,13 +457,13 @@ document.addEventListener("click", async (event) => {
       await refreshReminders();
     }
     if (deleteWishId) {
-      await api(`/api/users/${state.currentUserId}/wishes/${deleteWishId}`, { method: "DELETE" });
+      await api(`/api/me/wishes/${deleteWishId}`, { method: "DELETE" });
       await loadCurrentUserWishes();
       if (state.selectedUserId === state.currentUserId) await renderFriendCard();
       showToast("Желание удалено");
     }
     if (readReminderId) {
-      await api(`/api/notifications/users/${state.currentUserId}/${readReminderId}/read`, { method: "PUT" });
+      await api(`/api/notifications/${readReminderId}/read`, { method: "PUT" });
       await refreshReminders();
     }
   } catch (error) {
@@ -498,7 +506,6 @@ els.createGroupForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
     const body = serializeForm(event.currentTarget);
-    body.ownerId = state.currentUserId;
     await api("/api/groups", {
       method: "POST",
       body: JSON.stringify(body),
@@ -516,7 +523,7 @@ els.createWishForm.addEventListener("submit", async (event) => {
   try {
     const body = serializeForm(event.currentTarget);
     body.priority = Number(body.priority);
-    await api(`/api/users/${state.currentUserId}/wishes`, {
+    await api("/api/me/wishes", {
       method: "POST",
       body: JSON.stringify(body),
     });
@@ -534,7 +541,7 @@ els.chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = event.currentTarget.text.value.trim();
   if (!text) return;
-  const payload = { authorId: state.currentUserId, text };
+  const payload = { text };
   try {
     if (state.chatConnected && state.chatSocket?.readyState === WebSocket.OPEN) {
       sendChatViaSocket(state.selectedUserId, payload);

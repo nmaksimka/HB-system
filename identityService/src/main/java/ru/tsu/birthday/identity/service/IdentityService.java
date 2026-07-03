@@ -64,7 +64,36 @@ public class IdentityService {
         user(subscriberId);
         if (type == Subscription.TargetType.USER) user(targetId);
         else if (!groups.existsById(targetId)) throw new NoSuchElementException("Group not found: " + targetId);
+        var existing = subscriptions.findBySubscriberIdAndTargetTypeAndTargetId(subscriberId, type, targetId);
+        if (existing.isPresent()) return existing.get();
         return subscriptions.save(new Subscription(UUID.randomUUID(), subscriberId, type, targetId));
+    }
+
+    public void unsubscribe(UUID subscriberId, Subscription.TargetType type, UUID targetId) {
+        subscriptions.deleteBySubscriberIdAndTargetTypeAndTargetId(subscriberId, type, targetId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Subscription> subscriptions(UUID subscriberId) {
+        user(subscriberId);
+        return subscriptions.findBySubscriberId(subscriberId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<User> members(UUID groupId) {
+        if (!groups.existsById(groupId)) throw new NoSuchElementException("Group not found: " + groupId);
+        return users.findAllById(memberships.findByGroupId(groupId).stream()
+                .map(GroupMembership::getUserId).toList());
+    }
+
+    public void leave(UUID groupId, UUID userId) {
+        if (!groups.existsById(groupId)) throw new NoSuchElementException("Group not found: " + groupId);
+        memberships.deleteByGroupIdAndUserId(groupId, userId);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean userExists(UUID id) {
+        return users.existsById(id);
     }
 
     @Transactional(readOnly = true)

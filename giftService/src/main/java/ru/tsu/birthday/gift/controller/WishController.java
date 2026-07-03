@@ -2,27 +2,32 @@ package ru.tsu.birthday.gift.controller;
 
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 import ru.tsu.birthday.gift.service.WishService;
 import ru.tsu.birthday.gift.dto.*;
 import ru.tsu.birthday.gift.mapper.WishMapper;
+import ru.tsu.birthday.gift.security.CurrentUser;
 import java.util.*;
 
 @RestController
 public class WishController {
     private final WishService service;
     private final WishMapper mapper;
+    private final CurrentUser currentUser;
 
-    public WishController(WishService service, WishMapper mapper) {
+    public WishController(WishService service, WishMapper mapper, CurrentUser currentUser) {
         this.service = service;
         this.mapper = mapper;
+        this.currentUser = currentUser;
     }
 
-    @PostMapping("/api/users/{userId}/wishes")
+    @PostMapping("/api/me/wishes")
     @ResponseStatus(HttpStatus.CREATED)
-    WishResponse add(@PathVariable UUID userId, @Valid @RequestBody CreateWishRequest request) {
+    WishResponse add(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody CreateWishRequest request) {
         return mapper.toResponse(service.add(
-                userId, request.title(), request.description(), request.link(), request.priority()));
+                currentUser.id(jwt), request.title(), request.description(), request.link(), request.priority()));
     }
 
     @GetMapping({"/api/users/{userId}/wishes", "/internal/users/{userId}/wishes"})
@@ -30,7 +35,14 @@ public class WishController {
         return service.byUser(userId).stream().map(mapper::toResponse).toList();
     }
 
-    @DeleteMapping("/api/users/{userId}/wishes/{wishId}")
+    @GetMapping("/api/me/wishes")
+    List<WishResponse> myWishes(@AuthenticationPrincipal Jwt jwt) {
+        return service.byUser(currentUser.id(jwt)).stream().map(mapper::toResponse).toList();
+    }
+
+    @DeleteMapping("/api/me/wishes/{wishId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    void delete(@PathVariable UUID userId, @PathVariable UUID wishId) { service.delete(userId, wishId); }
+    void delete(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID wishId) {
+        service.delete(currentUser.id(jwt), wishId);
+    }
 }
