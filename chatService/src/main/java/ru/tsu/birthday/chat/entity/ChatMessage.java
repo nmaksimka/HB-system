@@ -1,4 +1,4 @@
-package ru.tsu.birthday.chat.domain;
+package ru.tsu.birthday.chat.entity;
 
 import jakarta.persistence.*;
 import java.time.Instant;
