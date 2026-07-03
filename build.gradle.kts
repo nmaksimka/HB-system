@@ -34,6 +34,10 @@ subprojects {
         useJUnitPlatform()
     }
 
+    tasks.named<Jar>("jar") {
+        enabled = false
+    }
+
     tasks.withType<JavaCompile> {
         options.compilerArgs.add("-Xlint:all")
     }

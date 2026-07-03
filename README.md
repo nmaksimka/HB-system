@@ -70,8 +70,11 @@ kebab-case, переменные окружения — UPPER_SNAKE_CASE, а SQL
 ```powershell
 Copy-Item .env.example .env
 # Измените DB_PASSWORD в .env
-docker compose -f docker-compose.yml up --build
+.\run.ps1
 ```
+
+`run.ps1` выполняет чистую Gradle-сборку с тестами, создаёт runtime Docker images
+из готовых JAR и поднимает весь стек.
 
 Все порты, адреса сервисов, реквизиты баз данных, Docker images и таймауты
 OpenFeign централизованы в `.env`. Этот файл игнорируется Git; полный шаблон
