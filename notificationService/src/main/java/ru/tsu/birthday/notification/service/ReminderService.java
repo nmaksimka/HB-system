@@ -33,6 +33,16 @@ public class ReminderService {
         return repository.findByRecipientIdOrderByBirthdayDateAsc(recipientId);
     }
 
+    @Transactional(readOnly = true)
+    public List<Reminder> reminders(UUID recipientId) {
+        return repository.findByRecipientIdOrderByBirthdayDateAsc(recipientId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Reminder> unread(UUID recipientId) {
+        return repository.findByRecipientIdAndReadAtIsNullOrderByBirthdayDateAsc(recipientId);
+    }
+
     public Reminder markRead(UUID recipientId, UUID reminderId) {
         var reminder = repository.findById(reminderId)
                 .orElseThrow(() -> new NoSuchElementException("Reminder not found: " + reminderId));
@@ -41,6 +51,13 @@ public class ReminderService {
         }
         reminder.markRead(Instant.now(clock));
         return reminder;
+    }
+
+    public List<Reminder> markAllRead(UUID recipientId) {
+        var now = Instant.now(clock);
+        var reminders = repository.findByRecipientIdAndReadAtIsNullOrderByBirthdayDateAsc(recipientId);
+        reminders.forEach(reminder -> reminder.markRead(now));
+        return repository.findByRecipientIdOrderByBirthdayDateAsc(recipientId);
     }
 
     static LocalDate nextBirthday(LocalDate birthDate, LocalDate today) {

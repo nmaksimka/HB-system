@@ -6,4 +6,9 @@ import java.util.*;
 
 public interface SubscriptionRepository extends JpaRepository<Subscription, UUID> {
     List<Subscription> findBySubscriberId(UUID subscriberId);
+    Optional<Subscription> findBySubscriberIdAndTargetTypeAndTargetId(UUID subscriberId,
+                                                                       Subscription.TargetType targetType,
+                                                                       UUID targetId);
+    void deleteBySubscriberIdAndTargetTypeAndTargetId(UUID subscriberId, Subscription.TargetType targetType,
+                                                       UUID targetId);
 }
