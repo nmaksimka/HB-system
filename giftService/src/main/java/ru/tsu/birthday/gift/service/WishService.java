@@ -1,8 +1,9 @@
-package ru.tsu.birthday.gift.application;
+package ru.tsu.birthday.gift.service;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import ru.tsu.birthday.gift.domain.Wish;
+import ru.tsu.birthday.gift.entity.Wish;
+import ru.tsu.birthday.gift.repository.WishRepository;
 import java.util.*;
 
 @Service
