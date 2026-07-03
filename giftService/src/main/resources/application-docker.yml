@@ -1,0 +1,5 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://giftDb:5432/gift
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}

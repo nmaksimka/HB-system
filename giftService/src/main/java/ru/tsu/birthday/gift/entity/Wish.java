@@ -1,4 +1,4 @@
-package ru.tsu.birthday.gift.domain;
+package ru.tsu.birthday.gift.entity;
 
 import jakarta.persistence.*;
 import java.util.UUID;
