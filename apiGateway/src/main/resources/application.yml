@@ -1,5 +1,5 @@
 server:
-  port: ${GATEWAY_PORT:6967}
+  port: ${GATEWAY_PORT:6767}
   shutdown: graceful
 spring:
   application:
@@ -11,9 +11,11 @@ spring:
           globalcors:
             cors-configurations:
               '[/**]':
-                allowed-origin-patterns: "*"
+                allowed-origins:
+                  - ${FRONTEND_ALLOWED_ORIGIN:http://localhost:5173}
+                  - http://localhost:6767
                 allowed-methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
-                allowed-headers: "*"
+                allowed-headers: [Authorization, Content-Type, X-Requested-With]
           routes:
             - id: giftService
               uri: ${GIFT_SERVICE_URL:http://localhost:6702}

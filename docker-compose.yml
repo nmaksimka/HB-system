@@ -14,7 +14,8 @@ x-database: &database
 x-service: &service
   restart: unless-stopped
   env_file:
-    - .env
+    - path: .env
+      required: false
   networks: [birthdayNetwork]
 
 services:
@@ -141,7 +142,7 @@ services:
         condition: service_healthy
       notificationService:
         condition: service_healthy
-    ports: ["${GATEWAY_PORT:-6967}:${GATEWAY_PORT:-6967}"]
+    ports: ["${GATEWAY_PORT:-6767}:${GATEWAY_PORT:-6767}"]
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:$${GATEWAY_PORT}/actuator/health/readiness"]
       interval: 10s
