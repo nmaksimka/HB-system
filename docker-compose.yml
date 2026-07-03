@@ -1,13 +1,10 @@
-name: birthdayPlatform
+name: ${COMPOSE_PROJECT_NAME:-birthdayplatform}
 
 x-database: &database
-  image: postgres:17-alpine
+  image: ${POSTGRES_IMAGE:-postgres:17-alpine}
   restart: unless-stopped
-  environment:
-    POSTGRES_USER: birthday
-    POSTGRES_PASSWORD: ${DB_PASSWORD:-birthday}
   healthcheck:
-    test: ["CMD-SHELL", "pg_isready -U birthday -d $${POSTGRES_DB}"]
+    test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
     interval: 5s
     timeout: 3s
     retries: 15
@@ -16,52 +13,50 @@ x-database: &database
 
 x-service: &service
   restart: unless-stopped
-  environment:
-    SPRING_PROFILES_ACTIVE: docker
-    DB_USER: birthday
-    DB_PASSWORD: ${DB_PASSWORD:-birthday}
+  env_file:
+    - .env
   networks: [birthdayNetwork]
 
 services:
   identityDb:
     <<: *database
     environment:
-      POSTGRES_DB: identity
-      POSTGRES_USER: birthday
+      POSTGRES_DB: ${IDENTITY_DB_NAME:-identity}
+      POSTGRES_USER: ${DB_USER:-birthday}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-birthday}
-    ports: ["5433:5432"]
+    ports: ["${IDENTITY_DB_PORT:-5433}:5432"]
     volumes: [identityData:/var/lib/postgresql/data]
 
   giftDb:
     <<: *database
     environment:
-      POSTGRES_DB: gift
-      POSTGRES_USER: birthday
+      POSTGRES_DB: ${GIFT_DB_NAME:-gift}
+      POSTGRES_USER: ${DB_USER:-birthday}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-birthday}
-    ports: ["5434:5432"]
+    ports: ["${GIFT_DB_PORT:-5434}:5432"]
     volumes: [giftData:/var/lib/postgresql/data]
 
   chatDb:
     <<: *database
     environment:
-      POSTGRES_DB: chat
-      POSTGRES_USER: birthday
+      POSTGRES_DB: ${CHAT_DB_NAME:-chat}
+      POSTGRES_USER: ${DB_USER:-birthday}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-birthday}
-    ports: ["5435:5432"]
+    ports: ["${CHAT_DB_PORT:-5435}:5432"]
     volumes: [chatData:/var/lib/postgresql/data]
 
   notificationDb:
     <<: *database
     environment:
-      POSTGRES_DB: notification
-      POSTGRES_USER: birthday
+      POSTGRES_DB: ${NOTIFICATION_DB_NAME:-notification}
+      POSTGRES_USER: ${DB_USER:-birthday}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-birthday}
-    ports: ["5436:5432"]
+    ports: ["${NOTIFICATION_DB_PORT:-5436}:5432"]
     volumes: [notificationData:/var/lib/postgresql/data]
 
   identityService:
     <<: *service
-    image: birthdayplatform/identity-service:local
+    image: ${IDENTITY_SERVICE_IMAGE:-birthdayplatform/identity-service:local}
     build:
       context: .
       dockerfile: identityService/Dockerfile
@@ -70,9 +65,9 @@ services:
         condition: service_healthy
       giftService:
         condition: service_healthy
-    ports: ["8081:8081"]
+    ports: ["${IDENTITY_SERVICE_PORT:-6701}:${IDENTITY_SERVICE_PORT:-6701}"]
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8081/actuator/health/readiness"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:$${IDENTITY_SERVICE_PORT}/actuator/health/readiness"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -80,16 +75,16 @@ services:
 
   giftService:
     <<: *service
-    image: birthdayplatform/gift-service:local
+    image: ${GIFT_SERVICE_IMAGE:-birthdayplatform/gift-service:local}
     build:
       context: .
       dockerfile: giftService/Dockerfile
     depends_on:
       giftDb:
         condition: service_healthy
-    ports: ["8082:8082"]
+    ports: ["${GIFT_SERVICE_PORT:-6702}:${GIFT_SERVICE_PORT:-6702}"]
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8082/actuator/health/readiness"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:$${GIFT_SERVICE_PORT}/actuator/health/readiness"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -97,16 +92,16 @@ services:
 
   chatService:
     <<: *service
-    image: birthdayplatform/chat-service:local
+    image: ${CHAT_SERVICE_IMAGE:-birthdayplatform/chat-service:local}
     build:
       context: .
       dockerfile: chatService/Dockerfile
     depends_on:
       chatDb:
         condition: service_healthy
-    ports: ["8083:8083"]
+    ports: ["${CHAT_SERVICE_PORT:-6703}:${CHAT_SERVICE_PORT:-6703}"]
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8083/actuator/health/readiness"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:$${CHAT_SERVICE_PORT}/actuator/health/readiness"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -114,7 +109,7 @@ services:
 
   notificationService:
     <<: *service
-    image: birthdayplatform/notification-service:local
+    image: ${NOTIFICATION_SERVICE_IMAGE:-birthdayplatform/notification-service:local}
     build:
       context: .
       dockerfile: notificationService/Dockerfile
@@ -123,9 +118,9 @@ services:
         condition: service_healthy
       identityService:
         condition: service_healthy
-    ports: ["8084:8084"]
+    ports: ["${NOTIFICATION_SERVICE_PORT:-6704}:${NOTIFICATION_SERVICE_PORT:-6704}"]
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8084/actuator/health/readiness"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:$${NOTIFICATION_SERVICE_PORT}/actuator/health/readiness"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -133,7 +128,7 @@ services:
 
   apiGateway:
     <<: *service
-    image: birthdayplatform/api-gateway:local
+    image: ${API_GATEWAY_IMAGE:-birthdayplatform/api-gateway:local}
     build:
       context: .
       dockerfile: apiGateway/Dockerfile
@@ -146,9 +141,9 @@ services:
         condition: service_healthy
       notificationService:
         condition: service_healthy
-    ports: ["8080:8080"]
+    ports: ["${GATEWAY_PORT:-6767}:${GATEWAY_PORT:-6767}"]
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/actuator/health/readiness"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:$${GATEWAY_PORT}/actuator/health/readiness"]
       interval: 10s
       timeout: 3s
       retries: 10
