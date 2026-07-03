@@ -5,22 +5,22 @@ spring:
         webflux:
           routes:
             - id: giftService
-              uri: http://giftService:8082
+              uri: ${GIFT_SERVICE_URL:http://giftService:6702}
               predicates:
                 - Path=/api/users/*/wishes,/api/users/*/wishes/**
             - id: chatWebSocket
-              uri: ws://chatService:8083
+              uri: ${CHAT_SERVICE_WS_URL:ws://chatService:6703}
               predicates:
                 - Path=/ws/**
             - id: chatService
-              uri: http://chatService:8083
+              uri: ${CHAT_SERVICE_URL:http://chatService:6703}
               predicates:
                 - Path=/api/chat/**
             - id: notificationService
-              uri: http://notificationService:8084
+              uri: ${NOTIFICATION_SERVICE_URL:http://notificationService:6704}
               predicates:
                 - Path=/api/notifications/**
             - id: identityService
-              uri: http://identityService:8081
+              uri: ${IDENTITY_SERVICE_URL:http://identityService:6701}
               predicates:
                 - Path=/api/users/**,/api/groups/**,/api/subscriptions/**

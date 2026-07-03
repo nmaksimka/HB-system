@@ -1,5 +1,5 @@
 server:
-  port: 8081
+  port: ${IDENTITY_SERVICE_PORT:6701}
   shutdown: graceful
 spring:
   application:
@@ -8,9 +8,9 @@ spring:
     virtual:
       enabled: true
   datasource:
-    url: jdbc:postgresql://localhost:5433/identity
-    username: birthday
-    password: birthday
+    url: ${IDENTITY_DB_URL:jdbc:postgresql://localhost:5433/identity}
+    username: ${DB_USER:birthday}
+    password: ${DB_PASSWORD:birthday}
   jpa:
     open-in-view: false
     hibernate:
@@ -27,11 +27,11 @@ spring:
       client:
         config:
           default:
-            connect-timeout: 1000
-            read-timeout: 2000
+            connect-timeout: ${OPENFEIGN_CONNECT_TIMEOUT:1000}
+            read-timeout: ${OPENFEIGN_READ_TIMEOUT:2000}
 clients:
   gift:
-    url: http://localhost:8082
+    url: ${GIFT_SERVICE_URL:http://localhost:6702}
 management:
   endpoint:
     health:

@@ -1,5 +1,3 @@
 spring:
   datasource:
-    url: jdbc:postgresql://chatDb:5432/chat
-    username: ${DB_USER}
-    password: ${DB_PASSWORD}
+    url: ${CHAT_DB_URL:jdbc:postgresql://chatDb:5432/chat}
