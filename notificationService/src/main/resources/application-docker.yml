@@ -1,0 +1,8 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://notificationDb:5432/notification
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+clients:
+  identity:
+    url: http://identityService:8081
