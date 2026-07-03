@@ -1,8 +1,23 @@
+const authConfig = {
+  issuer: "http://localhost:8080/realms/birthday-hub",
+  clientId: "birthday-hub-ui",
+  redirectUri: `${window.location.origin}/`,
+};
+
+const storageKeys = {
+  accessToken: "birthdayHub.accessToken",
+  refreshToken: "birthdayHub.refreshToken",
+  idToken: "birthdayHub.idToken",
+  expiresAt: "birthdayHub.expiresAt",
+};
+
 const state = {
+  me: null,
   users: [],
   groups: [],
+  groupMembers: {},
+  subscriptions: [],
   reminders: [],
-  currentUserId: localStorage.getItem("birthdayHub.currentUserId") || "",
   selectedUserId: "",
   chatSocket: null,
   chatConnected: false,
@@ -13,10 +28,15 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
 const els = {
-  currentUserSelect: $("#currentUserSelect"),
-  tokenForm: $("#tokenForm"),
-  accessTokenInput: $("#accessTokenInput"),
-  createUserForm: $("#createUserForm"),
+  authView: $("#authView"),
+  appView: $("#appView"),
+  loginForm: $("#loginForm"),
+  registerForm: $("#registerForm"),
+  logoutButton: $("#logoutButton"),
+  currentUserLabel: $("#currentUserLabel"),
+  pageTitle: $("#pageTitle"),
+  profileSetup: $("#profileSetup"),
+  profileForm: $("#profileForm"),
   refreshAllButton: $("#refreshAllButton"),
   refreshRemindersButton: $("#refreshRemindersButton"),
   reminderDays: $("#reminderDays"),
@@ -43,36 +63,139 @@ const els = {
   toast: $("#toast"),
 };
 
-function currentUser() {
-  return state.users.find((user) => user.id === state.currentUserId) || null;
+function tokenEndpoint() {
+  return `${authConfig.issuer}/protocol/openid-connect/token`;
+}
+
+function getAccessToken() {
+  return localStorage.getItem(storageKeys.accessToken) || "";
+}
+
+function hasSession() {
+  return Boolean(getAccessToken());
+}
+
+function saveTokens(tokens) {
+  const now = Date.now();
+  const expiresIn = Number(tokens.expires_in || 300);
+  localStorage.setItem(storageKeys.accessToken, tokens.access_token);
+  if (tokens.refresh_token) localStorage.setItem(storageKeys.refreshToken, tokens.refresh_token);
+  if (tokens.id_token) localStorage.setItem(storageKeys.idToken, tokens.id_token);
+  localStorage.setItem(storageKeys.expiresAt, String(now + expiresIn * 1000));
+}
+
+function clearSession() {
+  closeChatSocket();
+  Object.values(storageKeys).forEach((key) => {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+  });
+  state.me = null;
+  state.users = [];
+  state.groups = [];
+  state.groupMembers = {};
+  state.subscriptions = [];
+  state.reminders = [];
+  state.selectedUserId = "";
+}
+
+async function tokenRequest(body) {
+  const response = await fetch(tokenEndpoint(), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(body),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error_description || data.error || "Не удалось войти");
+  }
+  saveTokens(data);
+  return data;
+}
+
+async function loginWithPassword(username, password) {
+  await tokenRequest({
+    grant_type: "password",
+    client_id: authConfig.clientId,
+    username,
+    password,
+    scope: "openid profile",
+  });
+}
+
+async function registerAccount(payload) {
+  const response = await fetch("/api/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!response.ok) {
+    const detail = data?.detail || data?.title || response.statusText;
+    throw new Error(detail);
+  }
+  return data;
+}
+
+async function refreshTokenIfNeeded(force = false) {
+  const refreshToken = localStorage.getItem(storageKeys.refreshToken);
+  const expiresAt = Number(localStorage.getItem(storageKeys.expiresAt) || 0);
+  if (!refreshToken || (!force && Date.now() < expiresAt - 45000)) return;
+  await tokenRequest({
+    grant_type: "refresh_token",
+    client_id: authConfig.clientId,
+    refresh_token: refreshToken,
+  });
+}
+
+async function api(path, options = {}, retry = true) {
+  await refreshTokenIfNeeded();
+  const response = await fetch(path, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getAccessToken()}`,
+      ...(options.headers || {}),
+    },
+  });
+
+  if (response.status === 401 && retry) {
+    try {
+      await refreshTokenIfNeeded(true);
+      return api(path, options, false);
+    } catch {
+      clearSession();
+      showAuth();
+      throw new Error("Сессия истекла. Войдите заново.");
+    }
+  }
+
+  if (response.status === 204) return null;
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!response.ok) {
+    const detail = data?.detail || data?.title || response.statusText;
+    const error = new Error(detail);
+    error.status = response.status;
+    throw error;
+  }
+  return data;
+}
+
+function showAuth() {
+  els.authView.classList.remove("hidden");
+  els.appView.classList.add("hidden");
+}
+
+function showApp() {
+  els.authView.classList.add("hidden");
+  els.appView.classList.remove("hidden");
 }
 
 function selectedUser() {
   return state.users.find((user) => user.id === state.selectedUserId) || null;
 }
-
-function api(path, options = {}) {
-  const accessToken = localStorage.getItem("birthdayHub.accessToken") || "";
-  return fetch(path, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-      ...(options.headers || {}),
-    },
-    ...options,
-  }).then(async (response) => {
-    if (response.status === 204) return null;
-    const text = await response.text();
-    const data = text ? JSON.parse(text) : null;
-    if (!response.ok) {
-      const detail = data?.detail || data?.title || response.statusText;
-      throw new Error(detail);
-    }
-    return data;
-  });
-}
-
-els.accessTokenInput.value = localStorage.getItem("birthdayHub.accessToken") || "";
 
 function formatDate(value) {
   if (!value) return "Дата не указана";
@@ -94,9 +217,10 @@ function formatDateTime(value) {
 }
 
 function daysUntilBirthday(birthDate) {
+  if (!birthDate) return 0;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const [year, month, day] = birthDate.split("-").map(Number);
+  const [, month, day] = birthDate.split("-").map(Number);
   let next = new Date(today.getFullYear(), month - 1, day);
   if (next < today) next = new Date(today.getFullYear() + 1, month - 1, day);
   if (month === 2 && day === 29 && next.getMonth() !== 1) {
@@ -112,7 +236,24 @@ function showToast(message) {
   showToast.timer = window.setTimeout(() => els.toast.classList.remove("visible"), 3200);
 }
 
+function setLoading(button, loadingText) {
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = loadingText;
+  return () => {
+    button.disabled = false;
+    button.textContent = original;
+  };
+}
+
 function setSection(sectionId) {
+  const titles = {
+    dashboard: "Кого поздравляем следующим?",
+    people: "Друзья и идеи подарков",
+    groups: "Группы поздравлений",
+    wishes: "Мой wishlist",
+  };
+  els.pageTitle.textContent = titles[sectionId] || titles.dashboard;
   $$("[data-section]").forEach((section) => {
     section.classList.toggle("active", section.dataset.section === sectionId);
   });
@@ -121,54 +262,156 @@ function setSection(sectionId) {
   });
 }
 
-async function loadCoreData() {
-  const [users, groups] = await Promise.all([api("/api/users"), api("/api/groups")]);
-  state.users = users.sort((a, b) => daysUntilBirthday(a.birthDate) - daysUntilBirthday(b.birthDate));
-  state.groups = groups.sort((a, b) => a.name.localeCompare(b.name, "ru"));
-  if (!state.currentUserId && state.users[0]) state.currentUserId = state.users[0].id;
-  if (!state.selectedUserId && state.users[0]) {
-    state.selectedUserId = state.users.find((user) => user.id !== state.currentUserId)?.id || state.users[0].id;
+async function bootstrap() {
+  showApp();
+  try {
+    state.me = await api("/api/me");
+    els.profileSetup.classList.add("hidden");
+    await loadCoreData();
+    await Promise.allSettled([refreshReminders(), loadCurrentUserWishes()]);
+  } catch (error) {
+    if (error.status === 404) {
+      state.me = null;
+      els.currentUserLabel.textContent = "Новый аккаунт";
+      els.profileSetup.classList.remove("hidden");
+      await loadPublicLists();
+      renderAll();
+      showToast("Завершите профиль, чтобы пользоваться приложением.");
+      return;
+    }
+    showToast(error.message);
+    if (error.status === 401) {
+      clearSession();
+      showAuth();
+    }
   }
-  localStorage.setItem("birthdayHub.currentUserId", state.currentUserId);
+}
+
+async function loadPublicLists() {
+  const [users, groups] = await Promise.all([api("/api/users"), api("/api/groups")]);
+  state.users = sortUsers(users);
+  state.groups = groups.sort((a, b) => a.name.localeCompare(b.name, "ru"));
+}
+
+async function loadCoreData() {
+  const [users, groups, subscriptions] = await Promise.all([
+    api("/api/users"),
+    api("/api/groups"),
+    api("/api/subscriptions"),
+  ]);
+  state.users = sortUsers(users);
+  state.groups = groups.sort((a, b) => a.name.localeCompare(b.name, "ru"));
+  state.subscriptions = subscriptions;
+  await loadGroupMembers();
+  const friends = friendUsers();
+  if (!state.selectedUserId || !friends.some((user) => user.id === state.selectedUserId)) {
+    state.selectedUserId = friends[0]?.id || "";
+  }
   renderAll();
-  await loadCurrentUserWishes();
+}
+
+function sortUsers(users) {
+  return users.slice().sort((a, b) => daysUntilBirthday(a.birthDate) - daysUntilBirthday(b.birthDate));
+}
+
+function friendIds() {
+  return new Set(
+    state.subscriptions
+      .filter((subscription) => subscription.targetType === "USER")
+      .map((subscription) => subscription.targetId)
+  );
+}
+
+function isFriend(userId) {
+  return friendIds().has(userId);
+}
+
+function friendUsers() {
+  const ids = friendIds();
+  return state.users.filter((user) => ids.has(user.id));
+}
+
+function groupSubscriptionIds() {
+  return new Set(
+    state.subscriptions
+      .filter((subscription) => subscription.targetType === "GROUP")
+      .map((subscription) => subscription.targetId)
+  );
+}
+
+function isGroupSubscribed(groupId) {
+  return groupSubscriptionIds().has(groupId);
+}
+
+function isGroupMember(groupId) {
+  return Boolean(state.groupMembers[groupId]?.some((user) => user.id === state.me?.id));
+}
+
+async function loadGroupMembers() {
+  const entries = await Promise.all(
+    state.groups.map(async (group) => {
+      try {
+        return [group.id, await api(`/api/groups/${group.id}/members`)];
+      } catch {
+        return [group.id, []];
+      }
+    })
+  );
+  state.groupMembers = Object.fromEntries(entries);
 }
 
 async function refreshReminders() {
-  if (!state.currentUserId) return;
+  if (!state.me) return;
   const days = Number(els.reminderDays.value || 30);
-  state.reminders = await api(`/api/notifications/refresh?days=${days}`, {
-    method: "POST",
-  });
+  state.reminders = await api(`/api/notifications/refresh?days=${days}`, { method: "POST" });
   renderReminders();
   renderMetrics();
 }
 
 function renderAll() {
-  renderCurrentUserSelect();
+  renderIdentity();
   renderMetrics();
   renderUsers();
   renderGroups();
   renderFriendCard();
 }
 
-function renderCurrentUserSelect() {
-  els.currentUserSelect.innerHTML = state.users
-    .map((user) => `<option value="${user.id}">${escapeHtml(user.name)}</option>`)
-    .join("");
-  els.currentUserSelect.value = state.currentUserId;
+function renderIdentity() {
+  els.currentUserLabel.textContent = state.me?.name || "Профиль не заполнен";
 }
 
 function renderMetrics() {
-  els.usersMetric.textContent = state.users.length;
+  els.usersMetric.textContent = friendUsers().length;
   els.groupsMetric.textContent = state.groups.length;
   els.remindersMetric.textContent = state.reminders.filter((reminder) => !reminder.readAt).length;
 }
 
 function renderUsers() {
   const query = els.peopleSearch.value.trim().toLowerCase();
-  const users = state.users.filter((user) => user.name.toLowerCase().includes(query));
-  els.usersList.innerHTML = users.map((user) => {
+  const friends = friendUsers().filter((user) => user.name.toLowerCase().includes(query));
+  const candidates = state.users
+    .filter((user) => user.id !== state.me?.id && !isFriend(user.id))
+    .filter((user) => user.name.toLowerCase().includes(query));
+
+  els.usersList.innerHTML = `
+    <section class="list-section">
+      <div class="list-section-title">
+        <span>Мои друзья</span>
+        <span class="count-pill">${friends.length}</span>
+      </div>
+      ${friends.map(friendRow).join("") || empty("Вы пока никого не добавили. Найдите человека ниже.")}
+    </section>
+    <section class="list-section">
+      <div class="list-section-title">
+        <span>Найти людей</span>
+        <span class="count-pill">${candidates.length}</span>
+      </div>
+      ${candidates.map(candidateRow).join("") || empty("Новых людей по запросу не найдено")}
+    </section>
+  `;
+}
+
+function friendRow(user) {
     const days = daysUntilBirthday(user.birthDate);
     return `
       <article class="person-row ${user.id === state.selectedUserId ? "active" : ""}">
@@ -178,10 +421,26 @@ function renderUsers() {
         </div>
         <div class="row-actions">
           <button type="button" data-open-user="${user.id}">Открыть</button>
+          <button type="button" class="danger" data-remove-friend="${user.id}">Удалить</button>
         </div>
       </article>
     `;
-  }).join("") || empty("Пользователей пока нет");
+}
+
+function candidateRow(user) {
+  const days = daysUntilBirthday(user.birthDate);
+  return `
+    <article class="person-row locked">
+      <div>
+        <strong>${escapeHtml(user.name)}</strong>
+        <span class="muted">${formatDate(user.birthDate)} · через ${days} дн.</span>
+      </div>
+      <div class="row-actions">
+        <button type="button" data-open-user="${user.id}" class="secondary">Посмотреть</button>
+        <button type="button" data-add-friend="${user.id}">Добавить</button>
+      </div>
+    </article>
+  `;
 }
 
 async function renderFriendCard() {
@@ -196,7 +455,9 @@ async function renderFriendCard() {
   els.friendCardContent.classList.remove("hidden");
   els.friendName.textContent = user.name;
   els.friendBirthDate.textContent = `${formatDate(user.birthDate)} · ближайший день рождения через ${daysUntilBirthday(user.birthDate)} дн.`;
-  els.subscribeFriendButton.disabled = user.id === state.currentUserId;
+  els.subscribeFriendButton.disabled = !state.me || user.id === state.me.id;
+  els.subscribeFriendButton.textContent = isFriend(user.id) ? "Удалить из друзей" : "Добавить друга";
+  els.subscribeFriendButton.classList.toggle("danger", isFriend(user.id));
 
   try {
     const card = await api(`/api/users/${user.id}/card`);
@@ -213,21 +474,33 @@ async function renderFriendCard() {
 }
 
 function renderGroups() {
-  els.groupsList.innerHTML = state.groups.map((group) => `
-    <article class="group-card">
-      <strong>${escapeHtml(group.name)}</strong>
-      <span class="muted">Создатель: ${shortId(group.ownerId)}</span>
-      <div class="row-actions">
-        <button type="button" data-join-group="${group.id}">Вступить</button>
-        <button type="button" data-subscribe-group="${group.id}" class="secondary">Подписаться</button>
-      </div>
-    </article>
-  `).join("") || empty("Групп пока нет");
+  els.groupsList.innerHTML = state.groups.map((group) => {
+    const members = state.groupMembers[group.id] || [];
+    const subscribed = isGroupSubscribed(group.id);
+    const member = isGroupMember(group.id);
+    return `
+      <article class="group-card">
+        <strong>${escapeHtml(group.name)}</strong>
+        <span class="muted">Владелец: ${ownerName(group.ownerId)} · участников: ${members.length}</span>
+        <div class="member-list">
+          ${members.map((user) => `<span class="member-chip">${escapeHtml(user.name)}</span>`).join("") || `<span class="muted">Участников пока нет</span>`}
+        </div>
+        <div class="row-actions">
+          ${member
+            ? `<button type="button" class="danger" data-leave-group="${group.id}">Выйти</button>`
+            : `<button type="button" data-join-group="${group.id}" ${state.me ? "" : "disabled"}>Вступить</button>`}
+          ${subscribed
+            ? `<button type="button" class="danger" data-unsubscribe-group="${group.id}">Отписаться</button>`
+            : `<button type="button" data-subscribe-group="${group.id}" class="secondary" ${state.me ? "" : "disabled"}>Подписаться на группу</button>`}
+        </div>
+      </article>
+    `;
+  }).join("") || empty("Групп пока нет");
 }
 
 async function loadCurrentUserWishes() {
-  if (!state.currentUserId) {
-    els.myWishesList.innerHTML = empty("Сначала создайте или выберите пользователя");
+  if (!state.me) {
+    els.myWishesList.innerHTML = empty("Заполните профиль, чтобы добавить wishlist.");
     return;
   }
   const wishes = await api("/api/me/wishes");
@@ -260,27 +533,41 @@ function renderReminders() {
         ${reminder.readAt ? "" : `<button type="button" class="secondary" data-read-reminder="${reminder.id}">Отметить</button>`}
       </div>
     </article>
-  `).join("") || empty("Нет напоминаний. Подпишитесь на друга или группу.");
+  `).join("") || empty("Напоминаний пока нет. Подпишитесь на друга или группу.");
 }
 
 async function subscribe(targetType, targetId) {
-  if (!state.currentUserId) throw new Error("Выберите текущего пользователя");
+  if (!state.me) throw new Error("Сначала завершите профиль");
   const targetPath = targetType === "USER" ? "users" : "groups";
   await api(`/api/subscriptions/${targetPath}/${targetId}`, { method: "POST" });
-  showToast(targetType === "USER" ? "Подписка на друга создана" : "Подписка на группу создана");
+  showToast(targetType === "USER" ? "Друг добавлен" : "Подписка на группу создана");
+}
+
+async function unsubscribe(targetType, targetId) {
+  if (!state.me) throw new Error("Сначала завершите профиль");
+  const targetPath = targetType === "USER" ? "users" : "groups";
+  await api(`/api/subscriptions/${targetPath}/${targetId}`, { method: "DELETE" });
+}
+
+async function subscribeGroupAndMembers(groupId) {
+  await subscribe("GROUP", groupId);
+  showToast("Вы подписались на группу и всех ее участников");
 }
 
 async function loadChat() {
   closeChatSocket();
   els.chatMessages.innerHTML = "";
   const friend = selectedUser();
-  const me = currentUser();
-  const disabled = !friend || !me || friend.id === me.id;
+  const disabled = !friend || !state.me || friend.id === state.me.id || !isFriend(friend.id);
   els.chatForm.text.disabled = disabled;
   els.chatForm.querySelector("button").disabled = disabled;
   if (disabled) {
-    els.chatStatus.textContent = "Именинник не может читать собственный секретный чат.";
-    els.chatMessages.innerHTML = empty("Выберите другого пользователя как текущего участника.");
+    els.chatStatus.textContent = !state.me
+      ? "Заполните профиль, чтобы пользоваться чатом."
+      : friend?.id === state.me.id
+        ? "Именинник не может читать собственный секретный чат."
+        : "Добавьте человека в друзья, чтобы открыть секретный чат.";
+    els.chatMessages.innerHTML = empty("Чат доступен только с добавленными друзьями.");
     return;
   }
 
@@ -308,7 +595,7 @@ function appendMessage(message) {
 
 function messageTemplate(message) {
   const author = state.users.find((user) => user.id === message.authorId);
-  const own = message.authorId === state.currentUserId;
+  const own = message.authorId === state.me?.id;
   return `
     <article class="message ${own ? "own" : ""}">
       <div class="message-meta">${escapeHtml(author?.name || shortId(message.authorId))} · ${formatDateTime(message.createdAt)}</div>
@@ -325,7 +612,7 @@ function connectChatSocket(subjectUserId) {
   els.chatStatus.textContent = "Подключаем real-time чат...";
 
   socket.addEventListener("open", () => {
-    socket.send("CONNECT\naccept-version:1.2\nheart-beat:10000,10000\n\n\0");
+    socket.send(`CONNECT\nauthorization:Bearer ${getAccessToken()}\naccept-version:1.2\nheart-beat:10000,10000\n\n\0`);
   });
 
   socket.addEventListener("message", (event) => {
@@ -363,7 +650,7 @@ function handleStompFrame(frame, subjectUserId) {
 
 function sendChatViaSocket(subjectUserId, payload) {
   const body = JSON.stringify(payload);
-  state.chatSocket.send(`SEND\ndestination:/app/chat/${subjectUserId}\ncontent-type:application/json\n\n${body}\0`);
+  state.chatSocket.send(`SEND\ndestination:/app/chat/${subjectUserId}\nauthorization:Bearer ${getAccessToken()}\ncontent-type:application/json\n\n${body}\0`);
 }
 
 function closeChatSocket() {
@@ -371,15 +658,19 @@ function closeChatSocket() {
     try {
       state.chatSocket.close();
     } catch {
-      // Socket is best-effort UI plumbing.
+      // Closing is best-effort during page changes and logout.
     }
   }
   state.chatSocket = null;
   state.chatConnected = false;
 }
 
+function ownerName(id) {
+  return state.users.find((user) => user.id === id)?.name || shortId(id);
+}
+
 function empty(text) {
-  return `<div class="empty-inline muted">${escapeHtml(text)}</div>`;
+  return `<div class="empty-inline">${escapeHtml(text)}</div>`;
 }
 
 function shortId(id) {
@@ -404,62 +695,88 @@ function serializeForm(form) {
   return Object.fromEntries(new FormData(form).entries());
 }
 
-els.currentUserSelect.addEventListener("change", async (event) => {
-  state.currentUserId = event.target.value;
-  localStorage.setItem("birthdayHub.currentUserId", state.currentUserId);
-  renderFriendCard();
-  await Promise.all([refreshReminders(), loadCurrentUserWishes()]);
-});
-
-els.tokenForm.addEventListener("submit", async (event) => {
+els.loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  localStorage.setItem("birthdayHub.accessToken", els.accessTokenInput.value.trim());
-  showToast("Token сохранен");
-  await loadCoreData();
-  await refreshReminders();
+  const form = event.currentTarget;
+  const restore = setLoading(event.submitter, "Входим...");
+  const { username, password } = serializeForm(form);
+  try {
+    await loginWithPassword(username.trim(), password);
+    form.reset();
+    await bootstrap();
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    restore();
+  }
 });
-
-els.refreshAllButton.addEventListener("click", async () => {
-  await loadCoreData();
-  await refreshReminders();
-  showToast("Данные обновлены");
-});
-
-els.refreshRemindersButton.addEventListener("click", async () => {
-  await refreshReminders();
-  showToast("Напоминания обновлены");
-});
-
-els.peopleSearch.addEventListener("input", renderUsers);
 
 document.addEventListener("click", async (event) => {
   const target = event.target;
+  const demoLogin = target.dataset?.demoLogin;
   const openUserId = target.dataset?.openUser;
+  const addFriendId = target.dataset?.addFriend;
+  const removeFriendId = target.dataset?.removeFriend;
   const joinGroupId = target.dataset?.joinGroup;
+  const leaveGroupId = target.dataset?.leaveGroup;
   const subscribeGroupId = target.dataset?.subscribeGroup;
+  const unsubscribeGroupId = target.dataset?.unsubscribeGroup;
   const deleteWishId = target.dataset?.deleteWish;
   const readReminderId = target.dataset?.readReminder;
 
   try {
+    if (demoLogin) {
+      els.loginForm.username.value = demoLogin;
+      els.loginForm.password.value = "password";
+      await loginWithPassword(demoLogin, "password");
+      await bootstrap();
+    }
     if (openUserId) {
       state.selectedUserId = openUserId;
       setSection("people");
       renderUsers();
       await renderFriendCard();
     }
+    if (addFriendId) {
+      state.selectedUserId = addFriendId;
+      await subscribe("USER", addFriendId);
+      await Promise.all([loadCoreData(), refreshReminders()]);
+      setSection("people");
+      await renderFriendCard();
+    }
+    if (removeFriendId) {
+      await unsubscribe("USER", removeFriendId);
+      if (state.selectedUserId === removeFriendId) state.selectedUserId = "";
+      await Promise.all([loadCoreData(), refreshReminders()]);
+      setSection("people");
+      showToast("Друг удален");
+    }
     if (joinGroupId) {
       await api(`/api/groups/${joinGroupId}/members/me`, { method: "PUT" });
       showToast("Вы вступили в группу");
-      await renderFriendCard();
+      await loadCoreData();
+    }
+    if (leaveGroupId) {
+      await api(`/api/groups/${leaveGroupId}/members/me`, { method: "DELETE" });
+      if (isGroupSubscribed(leaveGroupId)) {
+        await unsubscribe("GROUP", leaveGroupId);
+      }
+      await loadCoreData();
+      showToast("Вы вышли из группы");
     }
     if (subscribeGroupId) {
-      await subscribe("GROUP", subscribeGroupId);
-      await refreshReminders();
+      await subscribeGroupAndMembers(subscribeGroupId);
+      await Promise.all([loadCoreData(), refreshReminders()]);
+    }
+    if (unsubscribeGroupId) {
+      await unsubscribe("GROUP", unsubscribeGroupId);
+      await Promise.all([loadCoreData(), refreshReminders()]);
+      showToast("Подписка на группу отключена");
     }
     if (deleteWishId) {
       await api(`/api/me/wishes/${deleteWishId}`, { method: "DELETE" });
       await loadCurrentUserWishes();
-      if (state.selectedUserId === state.currentUserId) await renderFriendCard();
+      if (state.selectedUserId === state.me?.id) await renderFriendCard();
       showToast("Желание удалено");
     }
     if (readReminderId) {
@@ -471,6 +788,74 @@ document.addEventListener("click", async (event) => {
   }
 });
 
+els.registerForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const restore = setLoading(event.submitter, "Создаем...");
+  const body = serializeForm(form);
+  body.username = body.username.trim();
+  try {
+    await registerAccount(body);
+    await loginWithPassword(body.username.trim(), body.password);
+    form.reset();
+    await bootstrap();
+    showToast("Аккаунт создан");
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    restore();
+  }
+});
+
+els.logoutButton.addEventListener("click", () => {
+  clearSession();
+  showAuth();
+  showToast("Вы вышли из аккаунта");
+});
+
+els.profileForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const restore = setLoading(event.submitter, "Сохраняем...");
+  try {
+    await api("/api/me/profile", {
+      method: "POST",
+      body: JSON.stringify(serializeForm(form)),
+    });
+    form.reset();
+    await bootstrap();
+    showToast("Профиль готов");
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    restore();
+  }
+});
+
+els.refreshAllButton.addEventListener("click", async () => {
+  const restore = setLoading(els.refreshAllButton, "Обновляем...");
+  try {
+    await loadCoreData();
+    await Promise.allSettled([refreshReminders(), loadCurrentUserWishes()]);
+    showToast("Данные обновлены");
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    restore();
+  }
+});
+
+els.refreshRemindersButton.addEventListener("click", async () => {
+  try {
+    await refreshReminders();
+    showToast("Напоминания обновлены");
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+els.peopleSearch.addEventListener("input", renderUsers);
+
 $$("[data-section-link]").forEach((link) => {
   link.addEventListener("click", (event) => {
     event.preventDefault();
@@ -480,23 +865,15 @@ $$("[data-section-link]").forEach((link) => {
 
 els.subscribeFriendButton.addEventListener("click", async () => {
   try {
-    await subscribe("USER", state.selectedUserId);
-    await refreshReminders();
-  } catch (error) {
-    showToast(error.message);
-  }
-});
-
-els.createUserForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  try {
-    await api("/api/users", {
-      method: "POST",
-      body: JSON.stringify(serializeForm(event.currentTarget)),
-    });
-    event.currentTarget.reset();
-    await loadCoreData();
-    showToast("Пользователь создан");
+    if (isFriend(state.selectedUserId)) {
+      await unsubscribe("USER", state.selectedUserId);
+      state.selectedUserId = "";
+      showToast("Друг удален");
+    } else {
+      await subscribe("USER", state.selectedUserId);
+    }
+    await Promise.all([loadCoreData(), refreshReminders()]);
+    await renderFriendCard();
   } catch (error) {
     showToast(error.message);
   }
@@ -504,13 +881,13 @@ els.createUserForm.addEventListener("submit", async (event) => {
 
 els.createGroupForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  const form = event.currentTarget;
   try {
-    const body = serializeForm(event.currentTarget);
     await api("/api/groups", {
       method: "POST",
-      body: JSON.stringify(body),
+      body: JSON.stringify(serializeForm(form)),
     });
-    event.currentTarget.reset();
+    form.reset();
     await loadCoreData();
     showToast("Группа создана");
   } catch (error) {
@@ -520,17 +897,18 @@ els.createGroupForm.addEventListener("submit", async (event) => {
 
 els.createWishForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  const form = event.currentTarget;
   try {
-    const body = serializeForm(event.currentTarget);
+    const body = serializeForm(form);
     body.priority = Number(body.priority);
     await api("/api/me/wishes", {
       method: "POST",
       body: JSON.stringify(body),
     });
-    event.currentTarget.reset();
-    event.currentTarget.priority.value = 1;
+    form.reset();
+    form.priority.value = 1;
     await loadCurrentUserWishes();
-    if (state.selectedUserId === state.currentUserId) await renderFriendCard();
+    if (state.selectedUserId === state.me?.id) await renderFriendCard();
     showToast("Желание опубликовано");
   } catch (error) {
     showToast(error.message);
@@ -539,7 +917,8 @@ els.createWishForm.addEventListener("submit", async (event) => {
 
 els.chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const text = event.currentTarget.text.value.trim();
+  const form = event.currentTarget;
+  const text = form.text.value.trim();
   if (!text) return;
   const payload = { text };
   try {
@@ -552,7 +931,7 @@ els.chatForm.addEventListener("submit", async (event) => {
       });
       appendMessage(message);
     }
-    event.currentTarget.reset();
+    form.reset();
   } catch (error) {
     showToast(error.message);
   }
@@ -560,9 +939,16 @@ els.chatForm.addEventListener("submit", async (event) => {
 
 window.addEventListener("beforeunload", closeChatSocket);
 
-loadCoreData()
-  .then(refreshReminders)
-  .catch((error) => {
+(async function init() {
+  try {
+    if (hasSession()) {
+      await bootstrap();
+    } else {
+      showAuth();
+    }
+  } catch (error) {
+    clearSession();
+    showAuth();
     showToast(error.message);
-    els.usersList.innerHTML = empty("Не удалось загрузить API. Проверьте, что gateway запущен.");
-  });
+  }
+})();

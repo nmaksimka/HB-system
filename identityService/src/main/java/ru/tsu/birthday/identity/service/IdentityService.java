@@ -34,6 +34,10 @@ public class IdentityService {
         return users.save(new User(UUID.randomUUID(), name, birthDate));
     }
 
+    public User createProfile(UUID id, String name, LocalDate birthDate) {
+        return users.findById(id).orElseGet(() -> users.save(new User(id, name, birthDate)));
+    }
+
     @Transactional(readOnly = true)
     public List<User> users() { return users.findAll(); }
 
@@ -67,6 +71,15 @@ public class IdentityService {
         var existing = subscriptions.findBySubscriberIdAndTargetTypeAndTargetId(subscriberId, type, targetId);
         if (existing.isPresent()) return existing.get();
         return subscriptions.save(new Subscription(UUID.randomUUID(), subscriberId, type, targetId));
+    }
+
+    public Subscription subscribeGroupAndMembers(UUID subscriberId, UUID groupId) {
+        var groupSubscription = subscribe(subscriberId, Subscription.TargetType.GROUP, groupId);
+        memberships.findByGroupId(groupId).stream()
+                .map(GroupMembership::getUserId)
+                .filter(memberId -> !memberId.equals(subscriberId))
+                .forEach(memberId -> subscribe(subscriberId, Subscription.TargetType.USER, memberId));
+        return groupSubscription;
     }
 
     public void unsubscribe(UUID subscriberId, Subscription.TargetType type, UUID targetId) {

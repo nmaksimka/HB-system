@@ -23,4 +23,4 @@ spring:
             - id: identityService
               uri: ${IDENTITY_SERVICE_URL:http://identityService:6701}
               predicates:
-                - Path=/api/me,/api/users/**,/api/groups/**,/api/subscriptions/**
+                - Path=/api/auth/**,/api/me,/api/me/**,/api/users/**,/api/groups/**,/api/subscriptions/**
