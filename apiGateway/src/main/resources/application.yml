@@ -1,5 +1,5 @@
 server:
-  port: ${GATEWAY_PORT:6767}
+  port: ${GATEWAY_PORT:6967}
   shutdown: graceful
 spring:
   application:
