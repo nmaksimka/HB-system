@@ -1,0 +1,165 @@
+name: birthdayPlatform
+
+x-database: &database
+  image: postgres:17-alpine
+  restart: unless-stopped
+  environment:
+    POSTGRES_USER: birthday
+    POSTGRES_PASSWORD: ${DB_PASSWORD:-birthday}
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U birthday -d $${POSTGRES_DB}"]
+    interval: 5s
+    timeout: 3s
+    retries: 15
+    start_period: 5s
+  networks: [birthdayNetwork]
+
+x-service: &service
+  restart: unless-stopped
+  environment:
+    SPRING_PROFILES_ACTIVE: docker
+    DB_USER: birthday
+    DB_PASSWORD: ${DB_PASSWORD:-birthday}
+  networks: [birthdayNetwork]
+
+services:
+  identityDb:
+    <<: *database
+    environment:
+      POSTGRES_DB: identity
+      POSTGRES_USER: birthday
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-birthday}
+    ports: ["5433:5432"]
+    volumes: [identityData:/var/lib/postgresql/data]
+
+  giftDb:
+    <<: *database
+    environment:
+      POSTGRES_DB: gift
+      POSTGRES_USER: birthday
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-birthday}
+    ports: ["5434:5432"]
+    volumes: [giftData:/var/lib/postgresql/data]
+
+  chatDb:
+    <<: *database
+    environment:
+      POSTGRES_DB: chat
+      POSTGRES_USER: birthday
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-birthday}
+    ports: ["5435:5432"]
+    volumes: [chatData:/var/lib/postgresql/data]
+
+  notificationDb:
+    <<: *database
+    environment:
+      POSTGRES_DB: notification
+      POSTGRES_USER: birthday
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-birthday}
+    ports: ["5436:5432"]
+    volumes: [notificationData:/var/lib/postgresql/data]
+
+  identityService:
+    <<: *service
+    image: birthdayplatform/identity-service:local
+    build:
+      context: .
+      dockerfile: identityService/Dockerfile
+    depends_on:
+      identityDb:
+        condition: service_healthy
+      giftService:
+        condition: service_healthy
+    ports: ["8081:8081"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8081/actuator/health/readiness"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 25s
+
+  giftService:
+    <<: *service
+    image: birthdayplatform/gift-service:local
+    build:
+      context: .
+      dockerfile: giftService/Dockerfile
+    depends_on:
+      giftDb:
+        condition: service_healthy
+    ports: ["8082:8082"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8082/actuator/health/readiness"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 25s
+
+  chatService:
+    <<: *service
+    image: birthdayplatform/chat-service:local
+    build:
+      context: .
+      dockerfile: chatService/Dockerfile
+    depends_on:
+      chatDb:
+        condition: service_healthy
+    ports: ["8083:8083"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8083/actuator/health/readiness"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 25s
+
+  notificationService:
+    <<: *service
+    image: birthdayplatform/notification-service:local
+    build:
+      context: .
+      dockerfile: notificationService/Dockerfile
+    depends_on:
+      notificationDb:
+        condition: service_healthy
+      identityService:
+        condition: service_healthy
+    ports: ["8084:8084"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8084/actuator/health/readiness"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 25s
+
+  apiGateway:
+    <<: *service
+    image: birthdayplatform/api-gateway:local
+    build:
+      context: .
+      dockerfile: apiGateway/Dockerfile
+    depends_on:
+      identityService:
+        condition: service_healthy
+      giftService:
+        condition: service_healthy
+      chatService:
+        condition: service_healthy
+      notificationService:
+        condition: service_healthy
+    ports: ["8080:8080"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
+networks:
+  birthdayNetwork:
+    driver: bridge
+
+volumes:
+  identityData:
+  giftData:
+  chatData:
+  notificationData:
