@@ -17,8 +17,14 @@ x-service: &service
     - path: .env
       required: false
   environment:
+    SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-docker}
     OAUTH2_ISSUER_URI: ${OAUTH2_ISSUER_URI:-http://localhost:8080/realms/birthday-hub}
     OAUTH2_JWK_SET_URI: ${OAUTH2_JWK_SET_URI:-http://keycloak:8080/realms/birthday-hub/protocol/openid-connect/certs}
+    GATEWAY_PORT: ${GATEWAY_PORT:-6767}
+    IDENTITY_SERVICE_PORT: ${IDENTITY_SERVICE_PORT:-6701}
+    GIFT_SERVICE_PORT: ${GIFT_SERVICE_PORT:-6702}
+    CHAT_SERVICE_PORT: ${CHAT_SERVICE_PORT:-6703}
+    NOTIFICATION_SERVICE_PORT: ${NOTIFICATION_SERVICE_PORT:-6704}
   networks: [birthdayNetwork]
 
 services:
