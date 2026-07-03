@@ -9,5 +9,5 @@ RUN addgroup -S spring && adduser -S spring -G spring
 WORKDIR /app
 COPY --from=builder --chown=spring:spring /workspace/notificationService/build/libs/*.jar app.jar
 USER spring:spring
-EXPOSE 8084
+EXPOSE 6704
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-jar", "/app/app.jar"]
