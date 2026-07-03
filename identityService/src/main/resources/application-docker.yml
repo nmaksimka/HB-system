@@ -1,8 +1,6 @@
 spring:
   datasource:
-    url: jdbc:postgresql://identityDb:5432/identity
-    username: ${DB_USER}
-    password: ${DB_PASSWORD}
+    url: ${IDENTITY_DB_URL:jdbc:postgresql://identityDb:5432/identity}
 clients:
   gift:
-    url: http://giftService:8082
+    url: ${GIFT_SERVICE_URL:http://giftService:6702}

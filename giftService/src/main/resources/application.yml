@@ -1,5 +1,5 @@
 server:
-  port: 8082
+  port: ${GIFT_SERVICE_PORT:6702}
   shutdown: graceful
 spring:
   application:
@@ -8,9 +8,9 @@ spring:
     virtual:
       enabled: true
   datasource:
-    url: jdbc:postgresql://localhost:5434/gift
-    username: birthday
-    password: birthday
+    url: ${GIFT_DB_URL:jdbc:postgresql://localhost:5434/gift}
+    username: ${DB_USER:birthday}
+    password: ${DB_PASSWORD:birthday}
   jpa:
     open-in-view: false
     hibernate:

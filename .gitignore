@@ -5,5 +5,7 @@ build/
 *.iml
 .vscode/
 .env
+.env.*
+!.env.example
 data/
 *.log

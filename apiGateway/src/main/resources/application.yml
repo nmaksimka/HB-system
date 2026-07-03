@@ -1,5 +1,5 @@
 server:
-  port: 8080
+  port: ${GATEWAY_PORT:6767}
   shutdown: graceful
 spring:
   application:
@@ -16,23 +16,23 @@ spring:
                 allowed-headers: "*"
           routes:
             - id: giftService
-              uri: http://localhost:8082
+              uri: ${GIFT_SERVICE_URL:http://localhost:6702}
               predicates:
                 - Path=/api/users/*/wishes,/api/users/*/wishes/**
             - id: chatWebSocket
-              uri: ws://localhost:8083
+              uri: ${CHAT_SERVICE_WS_URL:ws://localhost:6703}
               predicates:
                 - Path=/ws/**
             - id: chatService
-              uri: http://localhost:8083
+              uri: ${CHAT_SERVICE_URL:http://localhost:6703}
               predicates:
                 - Path=/api/chat/**
             - id: notificationService
-              uri: http://localhost:8084
+              uri: ${NOTIFICATION_SERVICE_URL:http://localhost:6704}
               predicates:
                 - Path=/api/notifications/**
             - id: identityService
-              uri: http://localhost:8081
+              uri: ${IDENTITY_SERVICE_URL:http://localhost:6701}
               predicates:
                 - Path=/api/users/**,/api/groups/**,/api/subscriptions/**
 management:

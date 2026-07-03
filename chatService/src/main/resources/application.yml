@@ -1,5 +1,5 @@
 server:
-  port: 8083
+  port: ${CHAT_SERVICE_PORT:6703}
   shutdown: graceful
 spring:
   application:
@@ -8,9 +8,9 @@ spring:
     virtual:
       enabled: true
   datasource:
-    url: jdbc:postgresql://localhost:5435/chat
-    username: birthday
-    password: birthday
+    url: ${CHAT_DB_URL:jdbc:postgresql://localhost:5435/chat}
+    username: ${DB_USER:birthday}
+    password: ${DB_PASSWORD:birthday}
   jpa:
     open-in-view: false
     hibernate:
