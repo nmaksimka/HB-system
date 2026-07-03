@@ -1,0 +1,16 @@
+server:
+  port: 8083
+spring:
+  application:
+    name: chat-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5435/chat}
+    username: ${DB_USER:birthday}
+    password: ${DB_PASSWORD:birthday}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+management.endpoints.web.exposure.include: health,info,metrics
