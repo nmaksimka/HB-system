@@ -82,6 +82,7 @@ textarea { min-height: 80px; resize: vertical; }
   cursor: pointer;
   font-weight: 500;
   white-space: nowrap;
+  text-decoration: none;
 }
 .button:hover { border-color: var(--ink-soft); }
 .button.primary { background: var(--ink); border-color: var(--ink); color: var(--paper); }
@@ -116,8 +117,8 @@ textarea { min-height: 80px; resize: vertical; }
   align-items: flex-start;
   gap: 32px;
   padding: 48px clamp(24px, 6vw, 96px);
-  background: var(--ink);
-  color: var(--paper);
+  background: #1e2a44;
+  color: #f6f7f9;
 }
 
 .sheet {
@@ -399,7 +400,9 @@ textarea { min-height: 80px; resize: vertical; }
   .tabs { order: 3; width: 100%; }
   .tabs a { padding: 10px 10px 12px; }
   .next { grid-template-columns: 1fr; justify-items: start; }
-  .list > li { flex-wrap: wrap; }
+  .list > li { flex-wrap: wrap; gap: 8px 12px; }
+  .list > li > .grow { flex-basis: calc(100% - 70px); }
+  .list > li > div.grow:first-child { flex-basis: 100%; }
   .add-wish .two { grid-template-columns: 1fr; }
 }
 

@@ -1,7 +1,4 @@
-const auth = {
-  tokenUrl: "http://localhost:8080/realms/birthday-hub/protocol/openid-connect/token",
-  clientId: "birthday-hub-ui",
-};
+const auth = { tokenUrl: null, clientId: null };
 
 const keys = {
   access: "birthdayHub.accessToken",
@@ -235,6 +232,9 @@ function setAuthMode(mode) {
 }
 
 async function start() {
+  if (!auth.tokenUrl) {
+    Object.assign(auth, await fetch("/auth/config").then((response) => response.json()));
+  }
   if (!localStorage.getItem(keys.access)) {
     showAuth();
     return;
@@ -508,7 +508,7 @@ async function renderGroups() {
         ${member ? `<span class="badge friend">вы в группе</span>` : ""}
         ${watchesGroup(group.id)
           ? `<button type="button" class="button quiet" data-unwatch="${group.id}">Не напоминать</button>`
-          : `<button type="button" class="button" data-watch="${group.id}">Напоминать о всех</button>`}
+          : `<button type="button" class="button" data-watch="${group.id}">Напоминать обо всех</button>`}
         ${member
           ? `<button type="button" class="button quiet" data-leave="${group.id}">Выйти</button>`
           : `<button type="button" class="button" data-join="${group.id}">Вступить</button>`}
