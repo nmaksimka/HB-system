@@ -15,6 +15,7 @@ import ru.tsu.birthday.bank.entity.OutboxEvent;
 import ru.tsu.birthday.bank.entity.Payment;
 import ru.tsu.birthday.bank.entity.ProcessedEvent;
 import ru.tsu.birthday.bank.event.FundraiserClosed;
+import ru.tsu.birthday.bank.event.PaymentRejected;
 import ru.tsu.birthday.bank.event.PaymentSucceeded;
 import ru.tsu.birthday.bank.repository.CollectionRepository;
 import ru.tsu.birthday.bank.repository.OutboxEventRepository;
@@ -90,6 +91,14 @@ public class BankService {
         collections.findById(event.fundraiserId())
                 .filter(Collection::isOpen)
                 .ifPresent(collection -> collection.close(event.closedAt()));
+    }
+
+    public void refund(PaymentRejected event) {
+        if (processedEvents.existsById(event.eventId())) {
+            return;
+        }
+        processedEvents.save(new ProcessedEvent(event.eventId(), Instant.now(clock)));
+        payments.findById(event.paymentId()).ifPresent(payment -> payment.refund(Instant.now(clock)));
     }
 
     private Collection visibleCollection(UUID viewerId, Optional<Collection> collection, UUID fundraiserId) {

@@ -18,6 +18,7 @@ import ru.tsu.birthday.fundraiser.entity.FundraiserStatus;
 import ru.tsu.birthday.fundraiser.entity.ProcessedEvent;
 import ru.tsu.birthday.fundraiser.event.FundraiserClosed;
 import ru.tsu.birthday.fundraiser.event.Outbox;
+import ru.tsu.birthday.fundraiser.event.PaymentRejected;
 import ru.tsu.birthday.fundraiser.event.PaymentSucceeded;
 import ru.tsu.birthday.fundraiser.repository.ContributionRepository;
 import ru.tsu.birthday.fundraiser.repository.FundraiserRepository;
@@ -104,6 +105,8 @@ public class FundraiserService {
             processedEvents.save(new ProcessedEvent(payment.eventId(), Instant.now(clock)));
             var fundraiser = fundraisers.findById(payment.fundraiserId()).orElse(null);
             if (fundraiser == null || !fundraiser.isActive()) {
+                outbox.paymentRejected(new PaymentRejected(UUID.randomUUID(), payment.paymentId(),
+                        payment.fundraiserId()));
                 return;
             }
             contributions.save(new Contribution(payment.paymentId(), fundraiser.getId(), payment.payerId(),
@@ -115,8 +118,7 @@ public class FundraiserService {
     }
 
     private void publishClosed(Fundraiser fundraiser) {
-        var eventId = UUID.randomUUID();
-        outbox.fundraiserClosed(eventId, new FundraiserClosed(eventId, fundraiser.getId(), fundraiser.getStatus(),
+        outbox.fundraiserClosed(new FundraiserClosed(UUID.randomUUID(), fundraiser.getId(), fundraiser.getStatus(),
                 fundraiser.getCollectedAmount(), fundraiser.getClosedAt()));
     }
 

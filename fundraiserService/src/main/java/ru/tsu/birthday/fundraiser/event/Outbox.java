@@ -23,8 +23,17 @@ public class Outbox {
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
-    public void fundraiserClosed(UUID eventId, FundraiserClosed event) {
-        repository.save(new OutboxEvent(eventId, FundraiserClosed.TOPIC, event.fundraiserId(),
-                json.writeValueAsString(event), Instant.now(clock)));
+    public void fundraiserClosed(FundraiserClosed event) {
+        save(event.eventId(), FundraiserClosed.TOPIC, event.fundraiserId(), event);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void paymentRejected(PaymentRejected event) {
+        save(event.eventId(), PaymentRejected.TOPIC, event.fundraiserId(), event);
+    }
+
+    private void save(UUID eventId, String topic, UUID aggregateId, Object event) {
+        repository.save(new OutboxEvent(eventId, topic, aggregateId, json.writeValueAsString(event),
+                Instant.now(clock)));
     }
 }

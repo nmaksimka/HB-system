@@ -6,11 +6,11 @@ import ru.tsu.birthday.bank.service.BankService;
 import tools.jackson.databind.json.JsonMapper;
 
 @Component
-public class FundraiserClosedListener {
+public class FundraiserEventsListener {
     private final BankService service;
     private final JsonMapper json;
 
-    public FundraiserClosedListener(BankService service, JsonMapper json) {
+    public FundraiserEventsListener(BankService service, JsonMapper json) {
         this.service = service;
         this.json = json;
     }
@@ -18,5 +18,10 @@ public class FundraiserClosedListener {
     @KafkaListener(topics = FundraiserClosed.TOPIC)
     public void onClosed(String message) {
         service.closeCollection(json.readValue(message, FundraiserClosed.class));
+    }
+
+    @KafkaListener(topics = PaymentRejected.TOPIC)
+    public void onRejected(String message) {
+        service.refund(json.readValue(message, PaymentRejected.class));
     }
 }
