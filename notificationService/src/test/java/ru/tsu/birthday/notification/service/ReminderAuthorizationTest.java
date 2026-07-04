@@ -23,7 +23,7 @@ class ReminderAuthorizationTest {
         var attackerId = UUID.randomUUID();
         var reminderId = UUID.randomUUID();
         var reminder = new Reminder(reminderId, ownerId, UUID.randomUUID(), "Anna",
-                LocalDate.now(), Instant.now());
+                LocalDate.now(), 7, Instant.now());
         when(repository.findById(reminderId)).thenReturn(Optional.of(reminder));
 
         assertThatIllegalArgumentException()

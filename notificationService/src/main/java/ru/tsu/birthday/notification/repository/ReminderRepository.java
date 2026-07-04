@@ -8,6 +8,6 @@ import java.util.*;
 public interface ReminderRepository extends JpaRepository<Reminder, UUID> {
     List<Reminder> findByRecipientIdOrderByBirthdayDateAsc(UUID recipientId);
     List<Reminder> findByRecipientIdAndReadAtIsNullOrderByBirthdayDateAsc(UUID recipientId);
-    boolean existsByRecipientIdAndBirthdayUserIdAndBirthdayDate(UUID recipientId, UUID birthdayUserId,
-                                                                 LocalDate birthdayDate);
+    boolean existsByRecipientIdAndBirthdayUserIdAndBirthdayDateAndThresholdDays(
+            UUID recipientId, UUID birthdayUserId, LocalDate birthdayDate, Integer thresholdDays);
 }
