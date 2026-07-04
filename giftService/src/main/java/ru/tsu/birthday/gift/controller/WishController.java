@@ -1,15 +1,18 @@
 package ru.tsu.birthday.gift.controller;
 
 import jakarta.validation.Valid;
+import java.util.List;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
-import ru.tsu.birthday.gift.service.WishService;
-import ru.tsu.birthday.gift.dto.*;
+import ru.tsu.birthday.gift.dto.CreateWishRequest;
+import ru.tsu.birthday.gift.dto.WishResponse;
+import ru.tsu.birthday.gift.dto.WishSummary;
 import ru.tsu.birthday.gift.mapper.WishMapper;
 import ru.tsu.birthday.gift.security.CurrentUser;
-import java.util.*;
+import ru.tsu.birthday.gift.service.WishService;
 
 @RestController
 public class WishController {
@@ -26,18 +29,20 @@ public class WishController {
     @PostMapping("/api/me/wishes")
     @ResponseStatus(HttpStatus.CREATED)
     WishResponse add(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody CreateWishRequest request) {
-        return mapper.toResponse(service.add(
-                currentUser.id(jwt), request.title(), request.description(), request.link(), request.priority()));
-    }
-
-    @GetMapping({"/api/users/{userId}/wishes", "/internal/users/{userId}/wishes"})
-    List<WishResponse> wishes(@PathVariable UUID userId) {
-        return service.byUser(userId).stream().map(mapper::toResponse).toList();
+        var userId = currentUser.id(jwt);
+        var wish = service.add(userId, request.title(), request.description(), request.link(), request.priority());
+        return mapper.toResponse(wish, userId);
     }
 
     @GetMapping("/api/me/wishes")
     List<WishResponse> myWishes(@AuthenticationPrincipal Jwt jwt) {
-        return service.byUser(currentUser.id(jwt)).stream().map(mapper::toResponse).toList();
+        return wishes(jwt, currentUser.id(jwt));
+    }
+
+    @GetMapping("/api/users/{userId}/wishes")
+    List<WishResponse> wishes(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID userId) {
+        var viewerId = currentUser.id(jwt);
+        return service.byUser(userId).stream().map(wish -> mapper.toResponse(wish, viewerId)).toList();
     }
 
     @DeleteMapping("/api/me/wishes/{wishId}")
@@ -48,12 +53,20 @@ public class WishController {
 
     @PutMapping("/api/users/{userId}/wishes/{wishId}/reservation")
     WishResponse reserve(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID userId, @PathVariable UUID wishId) {
-        return mapper.toResponse(service.reserve(currentUser.id(jwt), userId, wishId));
+        var viewerId = currentUser.id(jwt);
+        return mapper.toResponse(service.reserve(viewerId, userId, wishId), viewerId);
     }
 
     @DeleteMapping("/api/users/{userId}/wishes/{wishId}/reservation")
     WishResponse cancelReservation(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID userId,
                                    @PathVariable UUID wishId) {
-        return mapper.toResponse(service.cancelReservation(currentUser.id(jwt), userId, wishId));
+        var viewerId = currentUser.id(jwt);
+        return mapper.toResponse(service.cancelReservation(viewerId, userId, wishId), viewerId);
+    }
+
+    @GetMapping("/internal/wishes/{wishId}")
+    WishSummary summary(@PathVariable UUID wishId) {
+        var wish = service.wish(wishId);
+        return new WishSummary(wish.getId(), wish.getUserId(), wish.getTitle());
     }
 }
