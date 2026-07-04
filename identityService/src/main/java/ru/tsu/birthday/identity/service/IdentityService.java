@@ -74,12 +74,39 @@ public class IdentityService {
     }
 
     public Subscription subscribeGroupAndMembers(UUID subscriberId, UUID groupId) {
+        user(subscriberId);
+        if (!groups.existsById(groupId)) throw new NoSuchElementException("Group not found: " + groupId);
+        var memberIds = memberships.findByGroupId(groupId).stream()
+                .map(GroupMembership::getUserId)
+                .filter(memberId -> !memberId.equals(subscriberId))
+                .toList();
+        if (memberIds.isEmpty()) {
+            throw new IllegalArgumentException("There are no other users in this group");
+        }
+        var alreadySubscribed = memberIds.stream()
+                .filter(memberId -> subscriptions
+                        .findBySubscriberIdAndTargetTypeAndTargetId(
+                                subscriberId, Subscription.TargetType.USER, memberId)
+                        .isPresent())
+                .count();
+        if (alreadySubscribed == memberIds.size()) {
+            throw new IllegalArgumentException("You are already subscribed to all users in this group");
+        }
         var groupSubscription = subscribe(subscriberId, Subscription.TargetType.GROUP, groupId);
+        memberIds.forEach(memberId -> subscribe(subscriberId, Subscription.TargetType.USER, memberId));
+        return groupSubscription;
+    }
+
+    public void unsubscribeGroupAndMembers(UUID subscriberId, UUID groupId) {
+        user(subscriberId);
+        if (!groups.existsById(groupId)) throw new NoSuchElementException("Group not found: " + groupId);
+        subscriptions.deleteBySubscriberIdAndTargetTypeAndTargetId(
+                subscriberId, Subscription.TargetType.GROUP, groupId);
         memberships.findByGroupId(groupId).stream()
                 .map(GroupMembership::getUserId)
                 .filter(memberId -> !memberId.equals(subscriberId))
-                .forEach(memberId -> subscribe(subscriberId, Subscription.TargetType.USER, memberId));
-        return groupSubscription;
+                .forEach(memberId -> subscriptions.deleteBySubscriberIdAndTargetTypeAndTargetId(
+                        subscriberId, Subscription.TargetType.USER, memberId));
     }
 
     public void unsubscribe(UUID subscriberId, Subscription.TargetType type, UUID targetId) {
