@@ -1,3 +1,6 @@
 spring:
   datasource:
     url: ${CHAT_DB_URL:jdbc:postgresql://chatDb:5432/chat}
+clients:
+  identity:
+    url: ${IDENTITY_SERVICE_URL:http://identityService:6701}

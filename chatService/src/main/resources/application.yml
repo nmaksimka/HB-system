@@ -26,6 +26,20 @@ spring:
   flyway:
     enabled: true
     validate-migration-naming: true
+  cloud:
+    openfeign:
+      circuitbreaker:
+        enabled: true
+      client:
+        config:
+          default:
+            connect-timeout: ${OPENFEIGN_CONNECT_TIMEOUT:1000}
+            read-timeout: ${OPENFEIGN_READ_TIMEOUT:2000}
+clients:
+  identity:
+    url: ${IDENTITY_SERVICE_URL:http://localhost:6701}
+internal:
+  token: ${INTERNAL_TOKEN:local-internal-token}
 management:
   endpoint.health.probes.enabled: true
   endpoints.web.exposure.include: health,info,metrics,prometheus
