@@ -1,0 +1,10 @@
+spring:
+  datasource:
+    url: ${FUNDRAISER_DB_URL:jdbc:postgresql://fundraiserDb:5432/fundraiser}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+clients:
+  gift:
+    url: ${GIFT_SERVICE_URL:http://giftService:6702}
+  bank:
+    url: ${BANK_SERVICE_URL:http://bankService:6706}

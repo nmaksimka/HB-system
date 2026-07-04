@@ -5,5 +5,7 @@ include(
     "giftService",
     "chatService",
     "notificationService",
+    "fundraiserService",
+    "bankService",
     "apiGateway"
 )
