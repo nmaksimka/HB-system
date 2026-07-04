@@ -1,1041 +1,860 @@
-const authConfig = {
-  issuer: "http://localhost:8080/realms/birthday-hub",
+const auth = {
+  tokenUrl: "http://localhost:8080/realms/birthday-hub/protocol/openid-connect/token",
   clientId: "birthday-hub-ui",
-  redirectUri: `${window.location.origin}/`,
 };
 
-const storageKeys = {
-  accessToken: "birthdayHub.accessToken",
-  refreshToken: "birthdayHub.refreshToken",
-  idToken: "birthdayHub.idToken",
+const keys = {
+  access: "birthdayHub.accessToken",
+  refresh: "birthdayHub.refreshToken",
   expiresAt: "birthdayHub.expiresAt",
+};
+
+const MONTHS = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
+const MONTHS_OF = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+const MONTHS_SHORT = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+const WEEKDAYS = ["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"];
+
+const STATUS_TEXT = {
+  400: "Проверьте введённые данные",
+  401: "Сессия закончилась, войдите заново",
+  403: "Нет доступа к этому действию",
+  404: "Не нашли то, что вы ищете",
+  409: "Данные уже изменились, обновите страницу",
+  503: "Сервис временно недоступен, попробуйте через минуту",
 };
 
 const state = {
   me: null,
-  users: [],
+  users: new Map(),
   groups: [],
-  groupMembers: {},
   subscriptions: [],
-  reminders: [],
-  selectedUserId: "",
-  chatSocket: null,
-  chatConnected: false,
-  stompSubscriptionId: 0,
+  chat: null,
+  personToken: 0,
 };
 
-const $ = (selector) => document.querySelector(selector);
-const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+const $ = (selector, root = document) => root.querySelector(selector);
+const screen = $("#screen");
 
-const els = {
-  authView: $("#authView"),
-  appView: $("#appView"),
-  loginForm: $("#loginForm"),
-  registerForm: $("#registerForm"),
-  logoutButton: $("#logoutButton"),
-  currentUserLabel: $("#currentUserLabel"),
-  pageTitle: $("#pageTitle"),
-  profileSetup: $("#profileSetup"),
-  profileForm: $("#profileForm"),
-  refreshRemindersButton: $("#refreshRemindersButton"),
-  readAllRemindersButton: $("#readAllRemindersButton"),
-  usersMetric: $("#usersMetric"),
-  groupsMetric: $("#groupsMetric"),
-  remindersMetric: $("#remindersMetric"),
-  upcomingBirthdaysList: $("#upcomingBirthdaysList"),
-  remindersList: $("#remindersList"),
-  peopleSearch: $("#peopleSearch"),
-  usersList: $("#usersList"),
-  friendCardEmpty: $("#friendCardEmpty"),
-  friendCardContent: $("#friendCardContent"),
-  friendName: $("#friendName"),
-  friendBirthDate: $("#friendBirthDate"),
-  friendGroups: $("#friendGroups"),
-  friendWishes: $("#friendWishes"),
-  subscribeFriendButton: $("#subscribeFriendButton"),
-  chatStatus: $("#chatStatus"),
-  chatMessages: $("#chatMessages"),
-  chatForm: $("#chatForm"),
-  groupsList: $("#groupsList"),
-  createGroupForm: $("#createGroupForm"),
-  myWishesList: $("#myWishesList"),
-  createWishForm: $("#createWishForm"),
-  toast: $("#toast"),
-};
-
-function tokenEndpoint() {
-  return `${authConfig.issuer}/protocol/openid-connect/token`;
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
-function getAccessToken() {
-  return localStorage.getItem(storageKeys.accessToken) || "";
+function safeLink(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
 }
 
-function hasSession() {
-  return Boolean(getAccessToken());
+let toastTimer;
+function toast(message, isError = false) {
+  const element = $("#toast");
+  element.textContent = message;
+  element.classList.toggle("error", isError);
+  element.classList.add("visible");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => element.classList.remove("visible"), 3200);
+}
+
+function plural(n, one, few, many) {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+  return many;
+}
+
+function parseDate(value) {
+  const [year, month, day] = value.split("-").map(Number);
+  return { year, month, day };
+}
+
+function isLeap(year) {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+}
+
+function todayUtc() {
+  const now = new Date();
+  return Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+function birthdayIn(year, birth) {
+  const day = birth.month === 2 && birth.day === 29 && !isLeap(year) ? 28 : birth.day;
+  return Date.UTC(year, birth.month - 1, day);
+}
+
+function nextBirthday(birthDate) {
+  const birth = parseDate(birthDate);
+  const today = todayUtc();
+  const year = new Date(today).getUTCFullYear();
+  let date = birthdayIn(year, birth);
+  if (date < today) date = birthdayIn(year + 1, birth);
+  const when = new Date(date);
+  return {
+    date: when,
+    daysLeft: Math.round((date - today) / 86400000),
+    turns: when.getUTCFullYear() - birth.year,
+  };
+}
+
+function daysText(days) {
+  if (days === 0) return "сегодня";
+  if (days === 1) return "завтра";
+  return `через ${days} ${plural(days, "день", "дня", "дней")}`;
+}
+
+function longDate(date) {
+  return `${date.getUTCDate()} ${MONTHS_OF[date.getUTCMonth()]}`;
+}
+
+function money(value) {
+  return `${Number(value).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ₽`;
+}
+
+function sheet(date) {
+  return `
+    <div class="sheet" aria-hidden="true">
+      <span class="sheet-month">${MONTHS[date.getUTCMonth()]}</span>
+      <span class="sheet-day">${date.getUTCDate()}</span>
+      <span class="sheet-weekday">${WEEKDAYS[date.getUTCDay()]}</span>
+    </div>`;
+}
+
+function dateChip(date) {
+  return `<span class="date-chip" aria-hidden="true"><b>${date.getUTCDate()}</b><small>${MONTHS_SHORT[date.getUTCMonth()]}</small></span>`;
 }
 
 function saveTokens(tokens) {
-  const now = Date.now();
-  const expiresIn = Number(tokens.expires_in || 300);
-  localStorage.setItem(storageKeys.accessToken, tokens.access_token);
-  if (tokens.refresh_token) localStorage.setItem(storageKeys.refreshToken, tokens.refresh_token);
-  if (tokens.id_token) localStorage.setItem(storageKeys.idToken, tokens.id_token);
-  localStorage.setItem(storageKeys.expiresAt, String(now + expiresIn * 1000));
+  localStorage.setItem(keys.access, tokens.access_token);
+  localStorage.setItem(keys.refresh, tokens.refresh_token ?? "");
+  localStorage.setItem(keys.expiresAt, String(Date.now() + Number(tokens.expires_in ?? 300) * 1000));
 }
 
-function clearSession() {
-  closeChatSocket();
-  Object.values(storageKeys).forEach((key) => {
-    localStorage.removeItem(key);
-    sessionStorage.removeItem(key);
-  });
-  state.me = null;
-  state.users = [];
-  state.groups = [];
-  state.groupMembers = {};
-  state.subscriptions = [];
-  state.reminders = [];
-  state.selectedUserId = "";
+function clearTokens() {
+  Object.values(keys).forEach((key) => localStorage.removeItem(key));
 }
 
-async function tokenRequest(body) {
-  const response = await fetch(tokenEndpoint(), {
+async function requestToken(form) {
+  const response = await fetch(auth.tokenUrl, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams(body),
+    body: new URLSearchParams({ client_id: auth.clientId, ...form }),
   });
-  const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.error_description || data.error || "Не удалось войти");
-  }
-  saveTokens(data);
-  return data;
-}
-
-async function loginWithPassword(username, password) {
-  await tokenRequest({
-    grant_type: "password",
-    client_id: authConfig.clientId,
-    username,
-    password,
-    scope: "openid profile",
-  });
-}
-
-async function registerAccount(payload) {
-  const response = await fetch("/api/auth/register", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
-  if (!response.ok) {
-    const detail = data?.detail || data?.title || response.statusText;
-    throw new Error(detail);
-  }
-  return data;
-}
-
-async function refreshTokenIfNeeded(force = false) {
-  const refreshToken = localStorage.getItem(storageKeys.refreshToken);
-  const expiresAt = Number(localStorage.getItem(storageKeys.expiresAt) || 0);
-  if (!refreshToken || (!force && Date.now() < expiresAt - 45000)) return;
-  await tokenRequest({
-    grant_type: "refresh_token",
-    client_id: authConfig.clientId,
-    refresh_token: refreshToken,
-  });
-}
-
-async function api(path, options = {}, retry = true) {
-  await refreshTokenIfNeeded();
-  const response = await fetch(path, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${getAccessToken()}`,
-      ...(options.headers || {}),
-    },
-  });
-
-  if (response.status === 401 && retry) {
-    try {
-      await refreshTokenIfNeeded(true);
-      return api(path, options, false);
-    } catch {
-      clearSession();
-      showAuth();
-      throw new Error("Сессия истекла. Войдите заново.");
-    }
-  }
-
-  if (response.status === 204) return null;
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
-  if (!response.ok) {
-    const detail = data?.detail || data?.title || response.statusText;
-    const error = new Error(detail);
+    const error = new Error(response.status === 401 ? "Неверный логин или пароль" : "Не удалось войти");
     error.status = response.status;
     throw error;
   }
-  return data;
+  saveTokens(await response.json());
+}
+
+async function freshToken(force = false) {
+  const expiresAt = Number(localStorage.getItem(keys.expiresAt) ?? 0);
+  const refreshToken = localStorage.getItem(keys.refresh);
+  if (refreshToken && (force || Date.now() > expiresAt - 30000)) {
+    await requestToken({ grant_type: "refresh_token", refresh_token: refreshToken });
+  }
+  return localStorage.getItem(keys.access);
+}
+
+async function api(path, { method = "GET", body, errors = {} } = {}, retried = false) {
+  let token;
+  try {
+    token = await freshToken();
+  } catch {
+    signOut();
+    throw new Error(STATUS_TEXT[401]);
+  }
+  const response = await fetch(path, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (response.status === 401 && !retried) {
+    try {
+      await freshToken(true);
+    } catch {
+      signOut();
+      throw new Error(STATUS_TEXT[401]);
+    }
+    return api(path, { method, body, errors }, true);
+  }
+  if (!response.ok) {
+    const error = new Error(errors[response.status] ?? STATUS_TEXT[response.status] ?? "Что-то пошло не так");
+    error.status = response.status;
+    throw error;
+  }
+  return response.status === 204 ? null : response.json();
+}
+
+async function busy(button, action) {
+  if (button) button.disabled = true;
+  try {
+    return await action();
+  } catch (error) {
+    toast(error.message, true);
+    return undefined;
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function showOnly(id) {
+  ["authView", "profileView", "appView"].forEach((view) => $(`#${view}`).classList.toggle("hidden", view !== id));
+}
+
+function signOut() {
+  closeChat();
+  clearTokens();
+  state.me = null;
+  showAuth();
 }
 
 function showAuth() {
-  els.authView.classList.remove("hidden");
-  els.appView.classList.add("hidden");
+  const today = new Date(todayUtc());
+  $("#authMonth").textContent = MONTHS[today.getUTCMonth()];
+  $("#authDay").textContent = today.getUTCDate();
+  $("#authWeekday").textContent = WEEKDAYS[today.getUTCDay()];
+  showOnly("authView");
 }
 
-function showApp() {
-  els.authView.classList.add("hidden");
-  els.appView.classList.remove("hidden");
+function setAuthMode(mode) {
+  document.querySelectorAll("[data-auth-mode]").forEach((tab) => tab.classList.toggle("active", tab.dataset.authMode === mode));
+  $("#loginForm").classList.toggle("hidden", mode !== "login");
+  $("#registerForm").classList.toggle("hidden", mode !== "register");
 }
 
-function selectedUser() {
-  return state.users.find((user) => user.id === state.selectedUserId) || null;
-}
-
-function formatDate(value) {
-  if (!value) return "Дата не указана";
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(new Date(`${value}T00:00:00`));
-}
-
-function formatDateTime(value) {
-  if (!value) return "";
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
-
-function daysUntilBirthday(birthDate) {
-  if (!birthDate) return 0;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const [, month, day] = birthDate.split("-").map(Number);
-  let next = new Date(today.getFullYear(), month - 1, day);
-  if (next < today) next = new Date(today.getFullYear() + 1, month - 1, day);
-  if (month === 2 && day === 29 && next.getMonth() !== 1) {
-    next = new Date(next.getFullYear(), 1, 28);
+async function start() {
+  if (!localStorage.getItem(keys.access)) {
+    showAuth();
+    return;
   }
-  return Math.round((next - today) / 86400000);
-}
-
-function showToast(message) {
-  els.toast.textContent = message;
-  els.toast.classList.add("visible");
-  window.clearTimeout(showToast.timer);
-  showToast.timer = window.setTimeout(() => els.toast.classList.remove("visible"), 3200);
-}
-
-function setLoading(button, loadingText) {
-  const original = button.textContent;
-  button.disabled = true;
-  button.textContent = loadingText;
-  return () => {
-    button.disabled = false;
-    button.textContent = original;
-  };
-}
-
-function setSection(sectionId) {
-  const titles = {
-    dashboard: "Кого поздравляем следующим?",
-    reminders: "Напоминания",
-    people: "Друзья и идеи подарков",
-    groups: "Группы поздравлений",
-    wishes: "Мой wishlist",
-  };
-  els.pageTitle.textContent = titles[sectionId] || titles.dashboard;
-  $$("[data-section]").forEach((section) => {
-    section.classList.toggle("active", section.dataset.section === sectionId);
-  });
-  $$("[data-section-link]").forEach((link) => {
-    link.classList.toggle("active", link.dataset.sectionLink === sectionId);
-  });
-}
-
-async function bootstrap() {
-  showApp();
   try {
     state.me = await api("/api/me");
-    els.profileSetup.classList.add("hidden");
-    await loadCoreData();
-    await Promise.allSettled([refreshReminders(), loadCurrentUserWishes()]);
   } catch (error) {
     if (error.status === 404) {
-      state.me = null;
-      els.currentUserLabel.textContent = "Новый аккаунт";
-      els.profileSetup.classList.remove("hidden");
-      await loadPublicLists();
-      renderAll();
-      showToast("Завершите профиль, чтобы пользоваться приложением.");
+      showOnly("profileView");
       return;
     }
-    showToast(error.message);
-    if (error.status === 401) {
-      clearSession();
-      showAuth();
-    }
+    signOut();
+    return;
   }
+  $("#accountName").textContent = state.me.name;
+  showOnly("appView");
+  await loadSocial();
+  route();
 }
 
-async function loadPublicLists() {
-  const [users, groups] = await Promise.all([api("/api/users"), api("/api/groups")]);
-  state.users = sortUsers(users);
-  state.groups = groups.sort((a, b) => a.name.localeCompare(b.name, "ru"));
-}
-
-async function loadCoreData() {
+async function loadSocial() {
   const [users, groups, subscriptions] = await Promise.all([
     api("/api/users"),
     api("/api/groups"),
     api("/api/subscriptions"),
   ]);
-  state.users = sortUsers(users);
-  state.groups = groups.sort((a, b) => a.name.localeCompare(b.name, "ru"));
+  state.users = new Map(users.map((user) => [user.id, user]));
+  state.groups = groups;
   state.subscriptions = subscriptions;
-  await loadGroupMembers();
-  const friends = friendUsers();
-  if (!state.selectedUserId || !friends.some((user) => user.id === state.selectedUserId)) {
-    state.selectedUserId = friends[0]?.id || "";
-  }
-  renderAll();
-}
-
-function sortUsers(users) {
-  return users.slice().sort((a, b) => daysUntilBirthday(a.birthDate) - daysUntilBirthday(b.birthDate));
-}
-
-function friendIds() {
-  return new Set(
-    state.subscriptions
-      .filter((subscription) => subscription.targetType === "USER")
-      .map((subscription) => subscription.targetId)
-  );
 }
 
 function isFriend(userId) {
-  return friendIds().has(userId);
+  return state.subscriptions.some((s) => s.targetType === "USER" && s.targetId === userId);
 }
 
-function friendUsers() {
-  const ids = friendIds();
-  return state.users.filter((user) => ids.has(user.id));
+function watchesGroup(groupId) {
+  return state.subscriptions.some((s) => s.targetType === "GROUP" && s.targetId === groupId);
 }
 
-function groupSubscriptionIds() {
-  return new Set(
-    state.subscriptions
-      .filter((subscription) => subscription.targetType === "GROUP")
-      .map((subscription) => subscription.targetId)
-  );
+function nameOf(userId) {
+  if (userId === state.me?.id) return "вы";
+  return state.users.get(userId)?.name ?? "кто-то";
 }
 
-function isGroupSubscribed(groupId) {
-  return groupSubscriptionIds().has(groupId);
-}
-
-function isGroupMember(groupId) {
-  return Boolean(state.groupMembers[groupId]?.some((user) => user.id === state.me?.id));
-}
-
-function joinedGroups() {
-  return state.groups.filter((group) => isGroupMember(group.id));
-}
-
-function groupMemberIds(groupId) {
-  return new Set((state.groupMembers[groupId] || []).map((user) => user.id));
-}
-
-function groupSubscribeTargets(groupId) {
-  return (state.groupMembers[groupId] || []).filter((user) => user.id !== state.me?.id);
-}
-
-function isSubscribedToEveryGroupMember(groupId) {
-  const targets = groupSubscribeTargets(groupId);
-  return targets.length > 0 && targets.every((user) => isFriend(user.id));
-}
-
-function upcomingUsers() {
-  const ids = friendIds();
-  groupSubscriptionIds().forEach((groupId) => {
-    groupMemberIds(groupId).forEach((userId) => {
-      if (userId !== state.me?.id) ids.add(userId);
-    });
+function route() {
+  closeChat();
+  const [tab, id] = (location.hash.slice(1) || "upcoming").split("/");
+  document.querySelectorAll("[data-tab]").forEach((link) => {
+    link.classList.toggle("active", link.dataset.tab === tab || (tab === "person" && link.dataset.tab === "people"));
   });
-  return sortUsers(state.users.filter((user) => ids.has(user.id)));
+  const views = { upcoming: renderUpcoming, people: renderPeople, person: () => renderPerson(id), groups: renderGroups, wishes: renderWishes };
+  (views[tab] ?? renderUpcoming)().catch((error) => toast(error.message, true));
+  window.scrollTo(0, 0);
 }
 
-async function loadGroupMembers() {
-  const entries = await Promise.all(
-    state.groups.map(async (group) => {
-      try {
-        return [group.id, await api(`/api/groups/${group.id}/members`)];
-      } catch {
-        return [group.id, []];
-      }
-    })
-  );
-  state.groupMembers = Object.fromEntries(entries);
-}
+async function renderUpcoming() {
+  const [upcoming, reminders] = await Promise.all([
+    api("/api/me/upcoming"),
+    api("/api/notifications/refresh", { method: "POST" }),
+  ]);
+  const unread = reminders.filter((r) => !r.readAt).length;
+  const [next, ...rest] = upcoming;
 
-async function refreshReminders() {
-  if (!state.me) return;
-  state.reminders = await api("/api/notifications/refresh?days=30", { method: "POST" });
-  renderReminderNotifications();
-  renderMetrics();
-}
-
-function renderAll() {
-  renderIdentity();
-  renderMetrics();
-  renderUpcomingBirthdays();
-  renderReminderNotifications();
-  renderUsers();
-  renderGroups();
-  renderFriendCard();
-}
-
-function renderIdentity() {
-  els.currentUserLabel.textContent = state.me?.name || "Профиль не заполнен";
-}
-
-function renderMetrics() {
-  els.usersMetric.textContent = friendUsers().length;
-  els.groupsMetric.textContent = joinedGroups().length;
-  els.remindersMetric.textContent = state.reminders.filter((reminder) => !reminder.readAt).length;
-}
-
-function renderUsers() {
-  const query = els.peopleSearch.value.trim().toLowerCase();
-  const friends = friendUsers().filter((user) => user.name.toLowerCase().includes(query));
-  const candidates = state.users
-    .filter((user) => user.id !== state.me?.id && !isFriend(user.id))
-    .filter((user) => user.name.toLowerCase().includes(query));
-
-  els.usersList.innerHTML = `
-    <section class="list-section">
-      <div class="list-section-title">
-        <span>Мои друзья</span>
-        <span class="count-pill">${friends.length}</span>
+  const hero = next ? `
+    <section class="next">
+      ${sheet(new Date(`${next.nextBirthday}T00:00:00Z`))}
+      <div>
+        <p class="muted">Следующий день рождения</p>
+        <p class="next-name">${escapeHtml(next.name)}</p>
+        <p class="next-when"><strong>${daysText(next.daysLeft)}</strong>, исполнится ${nextBirthday(next.birthDate).turns}</p>
+        <a class="button primary" href="#person/${next.id}">Подготовить подарок</a>
       </div>
-      ${friends.map(friendRow).join("") || empty("Вы пока никого не добавили. Найдите человека ниже.")}
-    </section>
-    <section class="list-section">
-      <div class="list-section-title">
-        <span>Найти людей</span>
-        <span class="count-pill">${candidates.length}</span>
+    </section>` : `
+    <p class="empty">Здесь появятся ближайшие дни рождения. Добавьте друзей во вкладке <a href="#people">«Люди»</a> или вступите в <a href="#groups">группу</a>.</p>`;
+
+  const list = rest.length ? `<ul class="list">${rest.map((u) => `
+    <li>
+      ${dateChip(new Date(`${u.nextBirthday}T00:00:00Z`))}
+      <button type="button" class="person grow" data-open="${u.id}">
+        <span class="title">${escapeHtml(u.name)}</span>
+        <span class="meta">исполнится ${nextBirthday(u.birthDate).turns}</span>
+      </button>
+      <span class="days ${u.daysLeft <= 7 ? "soon" : ""}">${daysText(u.daysLeft)}</span>
+    </li>`).join("")}</ul>` : "";
+
+  const reminderList = reminders.length ? `<ul class="list">${reminders.map((r) => `
+    <li class="reminder ${r.readAt ? "" : "unread"}">
+      <button type="button" class="person grow" data-open="${r.birthdayUserId}">
+        <span class="title">${escapeHtml(r.birthdayUserName)}</span>
+        <span class="meta">${longDate(new Date(`${r.birthdayDate}T00:00:00Z`))}, ${reminderText(r.thresholdDays)}</span>
+      </button>
+      ${r.readAt ? "" : `<button type="button" class="button quiet" data-read="${r.id}">Прочитано</button>`}
+    </li>`).join("")}</ul>` : `<p class="empty">Напоминаний пока нет. Они появятся за месяц, неделю и день до праздника.</p>`;
+
+  screen.innerHTML = `
+    <div class="split">
+      <div>
+        ${hero}
+        ${list}
       </div>
-      ${candidates.map(candidateRow).join("") || empty("Новых людей по запросу не найдено")}
-    </section>
-  `;
+      <aside>
+        <div class="panel-title">
+          <h2>Напоминания${unread ? ` (${unread})` : ""}</h2>
+          ${unread ? `<button type="button" class="link" data-read-all>Прочитать все</button>` : ""}
+        </div>
+        ${reminderList}
+      </aside>
+    </div>`;
 }
 
-function friendRow(user) {
-    const days = daysUntilBirthday(user.birthDate);
-    return `
-      <article class="person-row ${user.id === state.selectedUserId ? "active" : ""}">
-        <div>
-          <strong>${escapeHtml(user.name)}</strong>
-          <span class="muted">${formatDate(user.birthDate)} · через ${days} дн.</span>
-        </div>
-        <div class="row-actions">
-          <button type="button" data-open-user="${user.id}">Открыть</button>
-          <button type="button" class="danger" data-remove-friend="${user.id}">Удалить</button>
-        </div>
-      </article>
-    `;
+function reminderText(threshold) {
+  if (threshold === 0) return "сегодня";
+  if (threshold === 1) return "уже завтра";
+  if (threshold === 7) return "осталось меньше недели";
+  return "осталось меньше месяца";
 }
 
-function candidateRow(user) {
-  const days = daysUntilBirthday(user.birthDate);
+async function renderPeople() {
+  await loadSocial();
+  const people = [...state.users.values()]
+    .filter((user) => user.id !== state.me.id)
+    .map((user) => ({ ...user, next: nextBirthday(user.birthDate) }))
+    .sort((a, b) => a.next.daysLeft - b.next.daysLeft);
+
+  screen.innerHTML = `
+    <div class="screen-head">
+      <div>
+        <h2>Люди</h2>
+        <p class="muted">Добавьте человека в друзья, чтобы получать напоминания и попасть в секретный чат про его подарок.</p>
+      </div>
+    </div>
+    <input class="search" type="search" placeholder="Найти по имени" data-search aria-label="Найти по имени">
+    ${people.length ? `<ul class="list" data-people>${people.map((user) => `
+      <li data-name="${escapeHtml(user.name.toLowerCase())}">
+        ${dateChip(user.next.date)}
+        <button type="button" class="person grow" data-open="${user.id}">
+          <span class="title">${escapeHtml(user.name)}</span>
+          <span class="meta">${daysText(user.next.daysLeft)}</span>
+        </button>
+        ${isFriend(user.id) ? `<span class="badge friend">друг</span>` : ""}
+        ${friendButton(user.id)}
+      </li>`).join("")}</ul>` : `<p class="empty">Пока здесь только вы. Позовите друзей зарегистрироваться.</p>`}`;
+}
+
+function friendButton(userId) {
+  return isFriend(userId)
+    ? `<button type="button" class="button quiet" data-unfriend="${userId}">Убрать из друзей</button>`
+    : `<button type="button" class="button" data-friend="${userId}">Добавить в друзья</button>`;
+}
+
+async function renderPerson(userId) {
+  if (!userId) return renderPeople();
+  if (userId === state.me.id) {
+    location.hash = "#wishes";
+    return;
+  }
+  const token = ++state.personToken;
+  const [card, wishes, fundraisers] = await Promise.all([
+    api(`/api/users/${userId}/card`),
+    api(`/api/users/${userId}/wishes`),
+    api(`/api/users/${userId}/fundraisers`),
+  ]);
+  const details = await Promise.all(fundraisers.map((f) => api(`/api/fundraisers/${f.id}`)));
+  if (token !== state.personToken) return;
+
+  const next = nextBirthday(card.birthDate);
+  const activeByWish = new Map(details.filter((f) => f.status === "ACTIVE").map((f) => [f.wishId, f]));
+  const wishTitles = new Map(wishes.map((w) => [w.id, w.title]));
+
+  screen.innerHTML = `
+    <div class="split">
+      <div>
+        <section class="person-head">
+          ${sheet(next.date)}
+          <div class="grow">
+            <h1>${escapeHtml(card.name)}</h1>
+            <p class="next-when"><strong>${daysText(next.daysLeft)}</strong>, исполнится ${next.turns}</p>
+            ${card.groups.length ? `<div class="chips">${card.groups.map((g) => `<span class="badge">${escapeHtml(g)}</span>`).join("")}</div>` : ""}
+          </div>
+          ${friendButton(card.id)}
+        </section>
+
+        <section class="section">
+          <div class="panel-title"><h2>Список желаний</h2></div>
+          ${wishes.length ? `<ul class="list">${wishes.map((wish) => wishRow(wish, card.id, activeByWish.get(wish.id))).join("")}</ul>`
+            : `<p class="empty">${escapeHtml(card.name)} пока ничего не добавил в список. Обсудите идеи в чате.</p>`}
+        </section>
+
+        <section class="section">
+          <div class="panel-title"><h2>Сборы на подарок</h2></div>
+          ${details.length ? details.map((f) => fundraiserBlock(f, wishTitles)).join("")
+            : `<p class="empty">Сборов пока нет. Нажмите «Скинуться» у желания, чтобы собрать деньги вместе.</p>`}
+        </section>
+      </div>
+      <aside id="chatSlot"></aside>
+    </div>`;
+
+  openChat(card);
+}
+
+function wishRow(wish, ownerId, fundraiser) {
+  const link = safeLink(wish.link);
+  let status = "";
+  let action = `<button type="button" class="button" data-reserve="${wish.id}" data-owner="${ownerId}">Забронировать</button>`;
+  if (wish.reservedByMe) {
+    status = `<span class="badge reserved">вы дарите это</span>`;
+    action = `<button type="button" class="button quiet" data-unreserve="${wish.id}" data-owner="${ownerId}">Снять бронь</button>`;
+  } else if (wish.reserved) {
+    status = `<span class="badge">уже забронировано</span>`;
+    action = "";
+  }
+  const chip = fundraiser
+    ? `<span class="badge reserved">идёт сбор</span>`
+    : `<button type="button" class="button quiet" data-fund="${wish.id}" data-title="${escapeHtml(wish.title)}">Скинуться</button>`;
   return `
-    <article class="person-row locked">
-      <div>
-        <strong>${escapeHtml(user.name)}</strong>
-        <span class="muted">${formatDate(user.birthDate)} · через ${days} дн.</span>
+    <li>
+      <div class="grow">
+        <div class="title">${escapeHtml(wish.title)}</div>
+        ${wish.description ? `<div class="meta">${escapeHtml(wish.description)}</div>` : ""}
+        ${link ? `<a class="wish-link" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">Посмотреть в магазине</a>` : ""}
       </div>
-      <div class="row-actions">
-        <button type="button" data-open-user="${user.id}" class="secondary">Посмотреть</button>
-        <button type="button" data-add-friend="${user.id}">Добавить</button>
-      </div>
-    </article>
-  `;
+      ${status}
+      ${chip}
+      ${action}
+    </li>`;
 }
 
-async function renderFriendCard() {
-  const user = selectedUser();
-  if (!user) {
-    els.friendCardEmpty.classList.remove("hidden");
-    els.friendCardContent.classList.add("hidden");
-    return;
-  }
+function fundraiserBlock(fundraiser, wishTitles) {
+  const target = Number(fundraiser.targetAmount);
+  const collected = Number(fundraiser.collectedAmount);
+  const percent = Math.min(100, Math.round((collected / target) * 100));
+  const statusText = { ACTIVE: "идёт сбор", COMPLETED: "собрали", CANCELLED: "отменён" }[fundraiser.status];
+  const totals = new Map();
+  fundraiser.contributions.forEach((c) => totals.set(c.payerId, (totals.get(c.payerId) ?? 0) + Number(c.amount)));
+  const people = [...totals.entries()].map(([id, sum]) => `${escapeHtml(nameOf(id))} — ${money(sum)}`).join(", ");
+  const left = Math.max(0, target - collected);
+  const isOwner = fundraiser.ownerId === state.me.id;
 
-  els.friendCardEmpty.classList.add("hidden");
-  els.friendCardContent.classList.remove("hidden");
-  els.friendName.textContent = user.name;
-  els.friendBirthDate.textContent = `${formatDate(user.birthDate)} · ближайший день рождения через ${daysUntilBirthday(user.birthDate)} дн.`;
-  els.subscribeFriendButton.disabled = !state.me || user.id === state.me.id;
-  els.subscribeFriendButton.textContent = isFriend(user.id) ? "Удалить из друзей" : "Добавить друга";
-  els.subscribeFriendButton.classList.toggle("danger", isFriend(user.id));
-
-  try {
-    const card = await api(`/api/users/${user.id}/card`);
-    els.friendGroups.innerHTML = card.groups.length
-      ? card.groups.map((group) => `<span class="chip">${escapeHtml(group)}</span>`).join("")
-      : `<span class="muted">Пока не состоит в группах.</span>`;
-    els.friendWishes.innerHTML = renderWishes(card.wishes, false, user.id);
-  } catch (error) {
-    els.friendGroups.innerHTML = "";
-    els.friendWishes.innerHTML = empty(error.message);
-  }
-
-  await loadChat();
+  return `
+    <div class="fund">
+      <div class="fund-head">
+        <div>
+          <div class="title">${escapeHtml(fundraiser.title)}</div>
+          <div class="meta">на «${escapeHtml(wishTitles.get(fundraiser.wishId) ?? "подарок")}», собирает ${escapeHtml(nameOf(fundraiser.ownerId))}</div>
+        </div>
+        <span class="badge ${fundraiser.status === "ACTIVE" ? "reserved" : ""}">${statusText}</span>
+      </div>
+      <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}"><span style="width:${percent}%"></span></div>
+      <div class="fund-numbers"><span><b>${money(collected)}</b> из ${money(target)}</span><span>${percent}%</span></div>
+      ${people ? `<p class="contributors">Скинулись: ${people}</p>` : ""}
+      ${fundraiser.status === "ACTIVE" ? `
+        <form class="pay" data-pay="${fundraiser.id}" data-key="${crypto.randomUUID()}">
+          <input name="amount" type="number" min="1" max="${left}" step="1" value="${Math.min(500, left)}" aria-label="Сумма взноса" required>
+          <button type="submit" class="button money">Внести</button>
+          ${isOwner ? `<button type="button" class="button quiet" data-cancel-fund="${fundraiser.id}">Отменить сбор</button>` : ""}
+        </form>` : ""}
+    </div>`;
 }
 
-function renderGroups() {
-  els.groupsList.innerHTML = state.groups.map((group) => {
-    const members = state.groupMembers[group.id] || [];
-    const subscribed = isGroupSubscribed(group.id);
-    const member = isGroupMember(group.id);
-    const targets = groupSubscribeTargets(group.id);
-    const allTargetsSubscribed = isSubscribedToEveryGroupMember(group.id);
-    const subscribeDisabled = !state.me || targets.length === 0 || allTargetsSubscribed;
-    const subscribeText = targets.length === 0
-      ? "Нет других участников"
-      : allTargetsSubscribed
-        ? "Все уже в друзьях"
-        : "Подписаться на группу";
+async function renderGroups() {
+  await loadSocial();
+  const groups = state.groups.map((group) => {
+    const names = group.memberIds.filter((id) => id !== state.me.id).map(nameOf);
+    const member = group.memberIds.includes(state.me.id);
     return `
-      <article class="group-card">
-        <strong>${escapeHtml(group.name)}</strong>
-        <span class="muted">Владелец: ${ownerName(group.ownerId)} · участников: ${members.length}</span>
-        <div class="member-list">
-          ${members.map((user) => `<span class="member-chip">${escapeHtml(user.name)}</span>`).join("") || `<span class="muted">Участников пока нет</span>`}
+      <li>
+        <div class="grow">
+          <div class="title">${escapeHtml(group.name)}</div>
+          <div class="meta">${group.memberIds.length} ${plural(group.memberIds.length, "участник", "участника", "участников")}${names.length ? `: ${escapeHtml(names.slice(0, 4).join(", "))}${names.length > 4 ? " и другие" : ""}` : ""}</div>
         </div>
-        <div class="row-actions">
-          ${member
-            ? `<button type="button" class="danger" data-leave-group="${group.id}">Выйти</button>`
-            : `<button type="button" data-join-group="${group.id}" ${state.me ? "" : "disabled"}>Вступить</button>`}
-          ${subscribed
-            ? `<button type="button" class="danger" data-unsubscribe-group="${group.id}">Отписаться</button>`
-            : `<button type="button" data-subscribe-group="${group.id}" class="secondary" ${subscribeDisabled ? "disabled" : ""}>${subscribeText}</button>`}
+        ${member ? `<span class="badge friend">вы в группе</span>` : ""}
+        ${watchesGroup(group.id)
+          ? `<button type="button" class="button quiet" data-unwatch="${group.id}">Не напоминать</button>`
+          : `<button type="button" class="button" data-watch="${group.id}">Напоминать о всех</button>`}
+        ${member
+          ? `<button type="button" class="button quiet" data-leave="${group.id}">Выйти</button>`
+          : `<button type="button" class="button" data-join="${group.id}">Вступить</button>`}
+      </li>`;
+  }).join("");
+
+  screen.innerHTML = `
+    <div class="split">
+      <div>
+        <div class="screen-head">
+          <div>
+            <h2>Группы</h2>
+            <p class="muted">Участники одной группы видят секретные чаты друг о друге и могут напоминать себе обо всех сразу.</p>
+          </div>
         </div>
-      </article>
-    `;
-  }).join("") || empty("Групп пока нет");
+        ${groups ? `<ul class="list">${groups}</ul>` : `<p class="empty">Групп пока нет. Создайте первую для своей компании.</p>`}
+      </div>
+      <aside>
+        <form class="add-wish form" data-create-group>
+          <h3>Новая группа</h3>
+          <label>Название<input name="name" maxlength="160" placeholder="Например, 301 группа" required></label>
+          <button type="submit" class="button primary">Создать группу</button>
+        </form>
+      </aside>
+    </div>`;
 }
 
-async function loadCurrentUserWishes() {
-  if (!state.me) {
-    els.myWishesList.innerHTML = empty("Заполните профиль, чтобы добавить wishlist.");
-    return;
-  }
+async function renderWishes() {
   const wishes = await api("/api/me/wishes");
-  els.myWishesList.innerHTML = renderWishes(wishes, true, state.me.id);
-}
-
-function renderWishes(wishes, editable = false, ownerId = "") {
-  if (!wishes?.length) return empty("Список желаний пока пуст");
-  return wishes.map((wish) => `
-    <article class="wish-card">
-      <strong>${escapeHtml(wish.title)}</strong>
-      <span class="muted">Приоритет: ${wish.priority}</span>
-      ${wish.description ? `<p>${escapeHtml(wish.description)}</p>` : ""}
-      ${wish.link ? `<a href="${escapeAttribute(wish.link)}" target="_blank" rel="noreferrer">Открыть ссылку</a>` : ""}
-      <div class="row-actions">
-        ${editable ? `<button class="danger" type="button" data-delete-wish="${wish.id}">Удалить</button>` : reservationButton(wish, ownerId)}
-      </div>
-    </article>
-  `).join("");
-}
-
-function reservationButton(wish, ownerId) {
-  if (!state.me || ownerId === state.me.id) return "";
-  if (!isFriend(ownerId)) return `<span class="reservation-label">Добавьте в друзья, чтобы бронировать</span>`;
-  if (wish.reservedBy === state.me.id) {
-    return `
-      <span class="reservation-label own">Забронировано вами</span>
-      <button type="button" class="secondary" data-cancel-reservation="${wish.id}" data-wish-owner="${ownerId}">Отменить бронь</button>
-    `;
-  }
-  if (wish.reservedBy) {
-    return `<span class="reservation-label">Уже забронировано</span>`;
-  }
-  return `<button type="button" data-reserve-wish="${wish.id}" data-wish-owner="${ownerId}">Забронировать</button>`;
-}
-
-function renderUpcomingBirthdays() {
-  const users = upcomingUsers();
-  els.upcomingBirthdaysList.innerHTML = users.map((user) => `
-    <article class="birthday-row">
+  screen.innerHTML = `
+    <div class="split">
       <div>
-        <strong>${escapeHtml(user.name)}</strong>
-        <span class="muted">${formatDate(user.birthDate)}</span>
+        <div class="screen-head">
+          <div>
+            <h2>Мой список желаний</h2>
+            <p class="muted">Друзья видят этот список и бронируют подарки. Кто и что забронировал, вам не покажем.</p>
+          </div>
+        </div>
+        ${wishes.length ? `<ul class="list">${wishes.map((wish) => {
+          const link = safeLink(wish.link);
+          return `
+            <li>
+              <span class="badge" title="Приоритет">${wish.priority}</span>
+              <div class="grow">
+                <div class="title">${escapeHtml(wish.title)}</div>
+                ${wish.description ? `<div class="meta">${escapeHtml(wish.description)}</div>` : ""}
+                ${link ? `<a class="wish-link" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">Ссылка</a>` : ""}
+              </div>
+              <button type="button" class="button quiet" data-delete-wish="${wish.id}">Удалить</button>
+            </li>`;
+        }).join("")}</ul>` : `<p class="empty">Список пуст. Добавьте пару идей, чтобы друзьям было проще выбрать подарок.</p>`}
       </div>
-      <button type="button" class="secondary" data-open-user="${user.id}">Открыть</button>
-    </article>
-  `).join("") || empty("Пока нет ближайших дат. Добавьте друзей или подпишитесь на группу.");
+      <aside>
+        <form class="add-wish form" data-create-wish>
+          <h3>Добавить желание</h3>
+          <label>Что подарить<input name="title" maxlength="160" required></label>
+          <label>Подробности<textarea name="description" maxlength="1000" placeholder="Размер, цвет, модель"></textarea></label>
+          <div class="two">
+            <label>Ссылка<input name="link" type="url" maxlength="500" placeholder="https://"></label>
+            <label>Приоритет<input name="priority" type="number" min="1" max="10" value="5" required></label>
+          </div>
+          <button type="submit" class="button primary">Добавить</button>
+        </form>
+      </aside>
+    </div>`;
 }
 
-function renderReminderNotifications() {
-  els.remindersList.innerHTML = state.reminders.map((reminder) => `
-    <article class="reminder-card ${reminder.readAt ? "read" : "unread"}">
-      <div>
-        <strong>${escapeHtml(reminder.birthdayUserName)}</strong>
-        <span class="muted">${formatDate(reminder.birthdayDate)}</span>
+function openChat(card) {
+  const slot = $("#chatSlot");
+  slot.innerHTML = `
+    <section class="chat">
+      <div class="chat-head">
+        <h3>Секретный чат</h3>
+        <p class="muted" data-chat-status>Загружаем сообщения…</p>
       </div>
-      <p class="${reminder.readAt ? "status-read" : "status-unread"}">
-        ${reminder.readAt ? "Прочитано" : reminderText(reminder.thresholdDays)}
-      </p>
-      <div class="row-actions">
-        <button type="button" data-open-user="${reminder.birthdayUserId}">Карточка</button>
-        ${reminder.readAt ? "" : `<button type="button" class="secondary" data-read-reminder="${reminder.id}">Отметить</button>`}
-      </div>
-    </article>
-  `).join("") || empty("Новых уведомлений нет. Они появятся за 30, 7 и 1 день до дня рождения.");
-}
+      <div class="messages" data-messages></div>
+      <form class="chat-form" data-chat-form="${card.id}">
+        <input name="text" maxlength="2000" placeholder="Идея подарка или план" autocomplete="off" aria-label="Сообщение" required>
+        <button type="submit" class="button primary">Отправить</button>
+      </form>
+    </section>`;
 
-function reminderText(days) {
-  if (days === 1) return "Завтра день рождения";
-  if (days === 7) return "Осталась неделя";
-  if (days === 30) return "Остался месяц";
-  return "Приближается день рождения";
-}
+  const chat = { subjectId: card.id, seen: new Set(), socket: null, closed: false };
+  state.chat = chat;
+  const status = $("[data-chat-status]", slot);
 
-async function subscribe(targetType, targetId) {
-  if (!state.me) throw new Error("Сначала завершите профиль");
-  const targetPath = targetType === "USER" ? "users" : "groups";
-  await api(`/api/subscriptions/${targetPath}/${targetId}`, { method: "POST" });
-  showToast(targetType === "USER" ? "Друг добавлен" : "Подписка на группу создана");
-}
-
-async function unsubscribe(targetType, targetId) {
-  if (!state.me) throw new Error("Сначала завершите профиль");
-  const targetPath = targetType === "USER" ? "users" : "groups";
-  await api(`/api/subscriptions/${targetPath}/${targetId}`, { method: "DELETE" });
-}
-
-async function subscribeGroupAndMembers(groupId) {
-  await subscribe("GROUP", groupId);
-  showToast("Вы подписались на группу и всех ее участников");
-}
-
-async function loadChat() {
-  closeChatSocket();
-  els.chatMessages.innerHTML = "";
-  const friend = selectedUser();
-  const disabled = !friend || !state.me || friend.id === state.me.id || !isFriend(friend.id);
-  els.chatForm.text.disabled = disabled;
-  els.chatForm.querySelector("button").disabled = disabled;
-  if (disabled) {
-    els.chatStatus.textContent = !state.me
-      ? "Заполните профиль, чтобы пользоваться чатом."
-      : friend?.id === state.me.id
-        ? "Именинник не может читать собственный секретный чат."
-        : "Добавьте человека в друзья, чтобы открыть секретный чат.";
-    els.chatMessages.innerHTML = empty("Чат доступен только с добавленными друзьями.");
-    return;
-  }
-
-  try {
-    const messages = await api(`/api/chat/users/${friend.id}/messages`);
-    renderMessages(messages);
-    connectChatSocket(friend.id);
-  } catch (error) {
-    els.chatStatus.textContent = error.message;
-    els.chatMessages.innerHTML = empty("Чат недоступен");
-  }
-}
-
-function renderMessages(messages) {
-  els.chatMessages.innerHTML = messages.map(messageTemplate).join("") || empty("Сообщений пока нет");
-  els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+  api(`/api/chat/users/${card.id}/messages`, { errors: { 403: "locked" } })
+    .then((messages) => {
+      if (chat.closed) return;
+      messages.forEach(appendMessage);
+      status.textContent = `${card.name} этот чат не видит`;
+      connectChat(chat, status);
+    })
+    .catch((error) => {
+      if (chat.closed) return;
+      if (error.status === 403) {
+        slot.querySelector(".messages").outerHTML = `<p class="chat-locked">Чат открыт друзьям и участникам общих групп. Добавьте ${escapeHtml(card.name)} в друзья, чтобы обсуждать подарок.</p>`;
+        slot.querySelector(".chat-form").remove();
+        status.textContent = "Нет доступа";
+      } else {
+        status.textContent = error.message;
+      }
+    });
 }
 
 function appendMessage(message) {
-  const emptyState = els.chatMessages.querySelector(".empty-inline");
-  if (emptyState) els.chatMessages.innerHTML = "";
-  els.chatMessages.insertAdjacentHTML("beforeend", messageTemplate(message));
-  els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+  const chat = state.chat;
+  const list = $("[data-messages]");
+  if (!chat || !list || chat.seen.has(message.id)) return;
+  chat.seen.add(message.id);
+  const mine = message.authorId === state.me.id;
+  const time = new Date(message.createdAt).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  list.insertAdjacentHTML("beforeend", `
+    <div class="message ${mine ? "mine" : ""}">
+      <div class="who">${mine ? "вы" : escapeHtml(nameOf(message.authorId))}, ${time}</div>
+      <div class="text">${escapeHtml(message.text)}</div>
+    </div>`);
+  list.scrollTop = list.scrollHeight;
 }
 
-function messageTemplate(message) {
-  const author = state.users.find((user) => user.id === message.authorId);
-  const own = message.authorId === state.me?.id;
-  return `
-    <article class="message ${own ? "own" : ""}">
-      <div class="message-meta">${escapeHtml(author?.name || shortId(message.authorId))} · ${formatDateTime(message.createdAt)}</div>
-      <div>${escapeHtml(message.text)}</div>
-    </article>
-  `;
-}
-
-function connectChatSocket(subjectUserId) {
-  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const socket = new WebSocket(`${protocol}://${window.location.host}/ws`);
-  state.chatSocket = socket;
-  state.chatConnected = false;
-  els.chatStatus.textContent = "Подключаем real-time чат...";
+async function connectChat(chat, status) {
+  const token = await freshToken().catch(() => null);
+  if (!token || chat.closed) return;
+  const protocol = location.protocol === "https:" ? "wss" : "ws";
+  const socket = new WebSocket(`${protocol}://${location.host}/ws`);
+  chat.socket = socket;
 
   socket.addEventListener("open", () => {
-    socket.send(`CONNECT\nauthorization:Bearer ${getAccessToken()}\naccept-version:1.2\nheart-beat:10000,10000\n\n\0`);
+    socket.send(`CONNECT\naccept-version:1.2\nheart-beat:0,0\nAuthorization:Bearer ${token}\n\n\0`);
   });
-
   socket.addEventListener("message", (event) => {
-    String(event.data).split("\0").filter(Boolean).forEach((frame) => handleStompFrame(frame, subjectUserId));
+    String(event.data).split("\0").map((frame) => frame.replace(/^\n+/, "")).filter(Boolean).forEach((frame) => {
+      const separator = frame.indexOf("\n\n");
+      const command = frame.slice(0, frame.indexOf("\n"));
+      const body = separator >= 0 ? frame.slice(separator + 2) : "";
+      if (command === "CONNECTED") {
+        socket.send(`SUBSCRIBE\nid:chat\ndestination:/topic/chat/${chat.subjectId}\n\n\0`);
+        status.classList.add("live");
+      } else if (command === "MESSAGE") {
+        appendMessage(JSON.parse(body));
+      } else if (command === "ERROR") {
+        status.classList.remove("live");
+      }
+    });
   });
-
-  socket.addEventListener("close", () => {
-    state.chatConnected = false;
-    if (state.selectedUserId === subjectUserId) {
-      els.chatStatus.textContent = "Real-time отключен, отправка пойдет через REST.";
-    }
-  });
-
-  socket.addEventListener("error", () => {
-    els.chatStatus.textContent = "WebSocket недоступен, используем REST.";
-  });
+  socket.addEventListener("close", () => status.classList.remove("live"));
 }
 
-function handleStompFrame(frame, subjectUserId) {
-  const [head, body = ""] = frame.split("\n\n");
-  const command = head.split("\n")[0];
-  if (command === "CONNECTED") {
-    state.chatConnected = true;
-    const subId = `chat-${state.stompSubscriptionId++}`;
-    state.chatSocket.send(`SUBSCRIBE\nid:${subId}\ndestination:/topic/chat/${subjectUserId}\n\n\0`);
-    els.chatStatus.textContent = "Real-time чат подключен.";
-  }
-  if (command === "MESSAGE") {
-    appendMessage(JSON.parse(body));
-  }
-  if (command === "ERROR") {
-    els.chatStatus.textContent = "WebSocket вернул ошибку, используем REST.";
-  }
+function closeChat() {
+  if (!state.chat) return;
+  state.chat.closed = true;
+  state.chat.socket?.close();
+  state.chat = null;
 }
 
-function sendChatViaSocket(subjectUserId, payload) {
-  const body = JSON.stringify(payload);
-  state.chatSocket.send(`SEND\ndestination:/app/chat/${subjectUserId}\nauthorization:Bearer ${getAccessToken()}\ncontent-type:application/json\n\n${body}\0`);
-}
-
-function closeChatSocket() {
-  if (state.chatSocket) {
-    try {
-      state.chatSocket.close();
-    } catch {
-      // Closing is best-effort during page changes and logout.
-    }
-  }
-  state.chatSocket = null;
-  state.chatConnected = false;
-}
-
-function ownerName(id) {
-  return state.users.find((user) => user.id === id)?.name || shortId(id);
-}
-
-function empty(text) {
-  return `<div class="empty-inline">${escapeHtml(text)}</div>`;
-}
-
-function shortId(id) {
-  return id ? id.slice(0, 8) : "";
-}
-
-function escapeHtml(value) {
-  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    "\"": "&quot;",
-    "'": "&#039;",
-  })[char]);
-}
-
-function escapeAttribute(value) {
-  return escapeHtml(value).replace(/`/g, "&#096;");
-}
-
-function serializeForm(form) {
+function formData(form) {
   return Object.fromEntries(new FormData(form).entries());
 }
 
-els.loginForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const restore = setLoading(event.submitter, "Входим...");
-  const { username, password } = serializeForm(form);
-  try {
-    await loginWithPassword(username.trim(), password);
-    form.reset();
-    await bootstrap();
-  } catch (error) {
-    showToast(error.message);
-  } finally {
-    restore();
+async function changeAndRerender(button, action, message) {
+  const done = await busy(button, async () => {
+    await action();
+    return true;
+  });
+  if (!done) return;
+  if (message) toast(message);
+  await loadSocial();
+  route();
+}
+
+screen.addEventListener("click", async (event) => {
+  const target = event.target.closest("button, a");
+  if (!target) return;
+  const data = target.dataset;
+
+  if (data.open) {
+    location.hash = `#person/${data.open}`;
+  } else if (data.friend) {
+    await changeAndRerender(target, () => api(`/api/subscriptions/users/${data.friend}`, { method: "POST" }), "Добавили в друзья");
+  } else if (data.unfriend) {
+    await changeAndRerender(target, () => api(`/api/subscriptions/users/${data.unfriend}`, { method: "DELETE" }));
+  } else if (data.watch) {
+    await changeAndRerender(target, () => api(`/api/subscriptions/groups/${data.watch}`, { method: "POST" }), "Будем напоминать обо всех в группе");
+  } else if (data.unwatch) {
+    await changeAndRerender(target, () => api(`/api/subscriptions/groups/${data.unwatch}`, { method: "DELETE" }));
+  } else if (data.join) {
+    await changeAndRerender(target, () => api(`/api/groups/${data.join}/members/me`, { method: "PUT" }), "Вы в группе");
+  } else if (data.leave) {
+    await changeAndRerender(target, () => api(`/api/groups/${data.leave}/members/me`, { method: "DELETE" }));
+  } else if (data.reserve) {
+    await changeAndRerender(target, () => api(`/api/users/${data.owner}/wishes/${data.reserve}/reservation`, {
+      method: "PUT",
+      errors: { 409: "Этот подарок уже забронировал кто-то другой" },
+    }), "Забронировано, теперь это ваш подарок");
+  } else if (data.unreserve) {
+    await changeAndRerender(target, () => api(`/api/users/${data.owner}/wishes/${data.unreserve}/reservation`, { method: "DELETE" }));
+  } else if (data.fund) {
+    openFundraiserDialog(data.fund, data.title);
+  } else if (data.cancelFund) {
+    if (!confirm("Отменить сбор? Новые взносы перестанут приниматься.")) return;
+    await changeAndRerender(target, () => api(`/api/fundraisers/${data.cancelFund}/cancel`, { method: "POST" }), "Сбор отменён");
+  } else if (data.deleteWish) {
+    await changeAndRerender(target, () => api(`/api/me/wishes/${data.deleteWish}`, { method: "DELETE" }));
+  } else if (data.read) {
+    await changeAndRerender(target, () => api(`/api/notifications/${data.read}/read`, { method: "PUT" }));
+  } else if (target.hasAttribute("data-read-all")) {
+    await changeAndRerender(target, () => api("/api/notifications/read-all", { method: "PUT" }));
   }
 });
 
-document.addEventListener("click", async (event) => {
-  const target = event.target;
-  const demoLogin = target.dataset?.demoLogin;
-  const openUserId = target.dataset?.openUser;
-  const addFriendId = target.dataset?.addFriend;
-  const removeFriendId = target.dataset?.removeFriend;
-  const joinGroupId = target.dataset?.joinGroup;
-  const leaveGroupId = target.dataset?.leaveGroup;
-  const subscribeGroupId = target.dataset?.subscribeGroup;
-  const unsubscribeGroupId = target.dataset?.unsubscribeGroup;
-  const deleteWishId = target.dataset?.deleteWish;
-  const reserveWishId = target.dataset?.reserveWish;
-  const cancelReservationId = target.dataset?.cancelReservation;
-  const wishOwnerId = target.dataset?.wishOwner;
-  const readReminderId = target.dataset?.readReminder;
-
-  try {
-    if (demoLogin) {
-      els.loginForm.username.value = demoLogin;
-      els.loginForm.password.value = "password";
-      await loginWithPassword(demoLogin, "password");
-      await bootstrap();
-    }
-    if (openUserId) {
-      state.selectedUserId = openUserId;
-      setSection("people");
-      renderUsers();
-      await renderFriendCard();
-    }
-    if (addFriendId) {
-      state.selectedUserId = addFriendId;
-      await subscribe("USER", addFriendId);
-      await Promise.all([loadCoreData(), refreshReminders()]);
-      setSection("people");
-      await renderFriendCard();
-    }
-    if (removeFriendId) {
-      await unsubscribe("USER", removeFriendId);
-      if (state.selectedUserId === removeFriendId) state.selectedUserId = "";
-      await Promise.all([loadCoreData(), refreshReminders()]);
-      setSection("people");
-      showToast("Друг удален");
-    }
-    if (joinGroupId) {
-      await api(`/api/groups/${joinGroupId}/members/me`, { method: "PUT" });
-      showToast("Вы вступили в группу");
-      await loadCoreData();
-    }
-    if (leaveGroupId) {
-      await api(`/api/groups/${leaveGroupId}/members/me`, { method: "DELETE" });
-      if (isGroupSubscribed(leaveGroupId)) {
-        await unsubscribe("GROUP", leaveGroupId);
-      }
-      await loadCoreData();
-      showToast("Вы вышли из группы");
-    }
-    if (subscribeGroupId) {
-      await subscribeGroupAndMembers(subscribeGroupId);
-      await Promise.all([loadCoreData(), refreshReminders()]);
-    }
-    if (unsubscribeGroupId) {
-      await unsubscribe("GROUP", unsubscribeGroupId);
-      await Promise.all([loadCoreData(), refreshReminders()]);
-      showToast("Подписка на группу отключена, друзья из группы удалены");
-    }
-    if (deleteWishId) {
-      await api(`/api/me/wishes/${deleteWishId}`, { method: "DELETE" });
-      await loadCurrentUserWishes();
-      if (state.selectedUserId === state.me?.id) await renderFriendCard();
-      showToast("Желание удалено");
-    }
-    if (reserveWishId && wishOwnerId) {
-      await api(`/api/users/${wishOwnerId}/wishes/${reserveWishId}/reservation`, { method: "PUT" });
-      await renderFriendCard();
-      showToast("Подарок забронирован");
-    }
-    if (cancelReservationId && wishOwnerId) {
-      await api(`/api/users/${wishOwnerId}/wishes/${cancelReservationId}/reservation`, { method: "DELETE" });
-      await renderFriendCard();
-      showToast("Бронь снята");
-    }
-    if (readReminderId) {
-      await api(`/api/notifications/${readReminderId}/read`, { method: "PUT" });
-      await refreshReminders();
-    }
-  } catch (error) {
-    showToast(error.message);
-  }
-});
-
-els.registerForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const restore = setLoading(event.submitter, "Создаем...");
-  const body = serializeForm(form);
-  body.username = body.username.trim();
-  try {
-    await registerAccount(body);
-    await loginWithPassword(body.username.trim(), body.password);
-    form.reset();
-    await bootstrap();
-    showToast("Аккаунт создан");
-  } catch (error) {
-    showToast(error.message);
-  } finally {
-    restore();
-  }
-});
-
-els.logoutButton.addEventListener("click", () => {
-  clearSession();
-  showAuth();
-  showToast("Вы вышли из аккаунта");
-});
-
-els.profileForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const restore = setLoading(event.submitter, "Сохраняем...");
-  try {
-    await api("/api/me/profile", {
-      method: "POST",
-      body: JSON.stringify(serializeForm(form)),
-    });
-    form.reset();
-    await bootstrap();
-    showToast("Профиль готов");
-  } catch (error) {
-    showToast(error.message);
-  } finally {
-    restore();
-  }
-});
-
-els.refreshRemindersButton.addEventListener("click", async () => {
-  try {
-    await refreshReminders();
-    showToast("Напоминания обновлены");
-  } catch (error) {
-    showToast(error.message);
-  }
-});
-
-els.readAllRemindersButton.addEventListener("click", async () => {
-  try {
-    state.reminders = await api("/api/notifications/read-all", { method: "PUT" });
-    renderReminderNotifications();
-    renderMetrics();
-    showToast("Напоминания прочитаны");
-  } catch (error) {
-    showToast(error.message);
-  }
-});
-
-els.peopleSearch.addEventListener("input", renderUsers);
-
-$$("[data-section-link]").forEach((link) => {
-  link.addEventListener("click", (event) => {
-    event.preventDefault();
-    setSection(link.dataset.sectionLink);
+screen.addEventListener("input", (event) => {
+  if (!event.target.matches("[data-search]")) return;
+  const query = event.target.value.trim().toLowerCase();
+  document.querySelectorAll("[data-people] > li").forEach((row) => {
+    row.classList.toggle("hidden", !row.dataset.name.includes(query));
   });
 });
 
-els.subscribeFriendButton.addEventListener("click", async () => {
-  try {
-    if (isFriend(state.selectedUserId)) {
-      await unsubscribe("USER", state.selectedUserId);
-      state.selectedUserId = "";
-      showToast("Друг удален");
-    } else {
-      await subscribe("USER", state.selectedUserId);
-    }
-    await Promise.all([loadCoreData(), refreshReminders()]);
-    await renderFriendCard();
-  } catch (error) {
-    showToast(error.message);
-  }
-});
-
-els.createGroupForm.addEventListener("submit", async (event) => {
+screen.addEventListener("submit", async (event) => {
+  const form = event.target;
   event.preventDefault();
-  const form = event.currentTarget;
-  try {
-    await api("/api/groups", {
+  const button = form.querySelector("button[type=submit]");
+  const values = formData(form);
+
+  if (form.dataset.chatForm) {
+    const message = await busy(button, () => api(`/api/chat/users/${form.dataset.chatForm}/messages`, {
       method: "POST",
-      body: JSON.stringify(serializeForm(form)),
-    });
-    form.reset();
-    await loadCoreData();
-    showToast("Группа создана");
-  } catch (error) {
-    showToast(error.message);
-  }
-});
-
-els.createWishForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  try {
-    const body = serializeForm(form);
-    body.priority = Number(body.priority);
-    await api("/api/me/wishes", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
-    form.reset();
-    form.priority.value = 1;
-    await loadCurrentUserWishes();
-    if (state.selectedUserId === state.me?.id) await renderFriendCard();
-    showToast("Желание опубликовано");
-  } catch (error) {
-    showToast(error.message);
-  }
-});
-
-els.chatForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const text = form.text.value.trim();
-  if (!text) return;
-  const payload = { text };
-  try {
-    if (state.chatConnected && state.chatSocket?.readyState === WebSocket.OPEN) {
-      sendChatViaSocket(state.selectedUserId, payload);
-    } else {
-      const message = await api(`/api/chat/users/${state.selectedUserId}/messages`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
+      body: { text: values.text },
+    }));
+    if (message) {
       appendMessage(message);
+      form.reset();
+      form.elements.text.focus();
     }
-    form.reset();
-  } catch (error) {
-    showToast(error.message);
+  } else if (form.dataset.pay) {
+    const payment = await busy(button, () => api(`/api/bank/collections/${form.dataset.pay}/payments`, {
+      method: "POST",
+      body: { amount: Number(values.amount), idempotencyKey: form.dataset.key },
+      errors: { 400: "Сумма больше, чем осталось собрать", 409: "Сбор уже закрыт" },
+    }));
+    if (payment) {
+      toast(`Внесли ${money(payment.amount)}. Сумма обновится через пару секунд`);
+      setTimeout(route, 1500);
+    }
+  } else if (form.hasAttribute("data-create-group")) {
+    await changeAndRerender(button, () => api("/api/groups", {
+      method: "POST",
+      body: { name: values.name },
+      errors: { 409: "Группа с таким названием уже есть" },
+    }), "Группа создана");
+  } else if (form.hasAttribute("data-create-wish")) {
+    await changeAndRerender(button, () => api("/api/me/wishes", {
+      method: "POST",
+      body: {
+        title: values.title,
+        description: values.description || null,
+        link: values.link || null,
+        priority: Number(values.priority),
+      },
+      errors: { 400: "Проверьте ссылку: она должна начинаться с http:// или https://" },
+    }), "Добавили в список");
   }
 });
 
-window.addEventListener("beforeunload", closeChatSocket);
+function openFundraiserDialog(wishId, wishTitle) {
+  const dialog = $("#fundraiserDialog");
+  const form = $("#fundraiserForm");
+  form.reset();
+  form.dataset.wish = wishId;
+  form.elements.title.value = `Скидываемся на ${wishTitle}`;
+  $("#fundraiserWish").textContent = `Подарок: ${wishTitle}`;
+  dialog.showModal();
+}
 
-(async function init() {
-  try {
-    if (hasSession()) {
-      await bootstrap();
-    } else {
-      showAuth();
-    }
-  } catch (error) {
-    clearSession();
-    showAuth();
-    showToast(error.message);
+$("#fundraiserForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.target;
+  const values = formData(form);
+  const created = await busy(form.querySelector("button[type=submit]"), () => api("/api/fundraisers", {
+    method: "POST",
+    body: { wishId: form.dataset.wish, title: values.title, targetAmount: Number(values.targetAmount) },
+    errors: { 409: "На этот подарок уже идёт сбор" },
+  }));
+  if (created) {
+    $("#fundraiserDialog").close();
+    toast("Сбор открыт, зовите друзей");
+    route();
   }
-})();
+});
+
+document.querySelectorAll("[data-close-dialog]").forEach((button) => {
+  button.addEventListener("click", () => button.closest("dialog").close());
+});
+
+document.querySelectorAll("[data-auth-mode]").forEach((tab) => {
+  tab.addEventListener("click", () => setAuthMode(tab.dataset.authMode));
+});
+
+document.querySelectorAll("[data-demo]").forEach((button) => {
+  button.addEventListener("click", () => {
+    $("#loginForm").username.value = button.dataset.demo;
+    $("#loginForm").password.value = "password";
+  });
+});
+
+$("#loginForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const values = formData(event.target);
+  const ok = await busy(event.target.querySelector("button[type=submit]"), async () => {
+    await requestToken({ grant_type: "password", username: values.username, password: values.password, scope: "openid" });
+    return true;
+  });
+  if (ok) start();
+});
+
+$("#registerForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const values = formData(event.target);
+  const ok = await busy(event.target.querySelector("button[type=submit]"), async () => {
+    const response = await fetch("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(values),
+    });
+    if (!response.ok) {
+      throw new Error(response.status === 409 ? "Этот логин уже занят" : STATUS_TEXT[response.status] ?? "Не удалось зарегистрироваться");
+    }
+    await requestToken({ grant_type: "password", username: values.username, password: values.password, scope: "openid" });
+    return true;
+  });
+  if (ok) start();
+});
+
+$("#profileForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const values = formData(event.target);
+  const ok = await busy(event.target.querySelector("button[type=submit]"), async () => {
+    await api("/api/me/profile", { method: "POST", body: values });
+    return true;
+  });
+  if (ok) start();
+});
+
+$("#logoutButton").addEventListener("click", signOut);
+window.addEventListener("hashchange", () => {
+  if (state.me) route();
+});
+
+start();
