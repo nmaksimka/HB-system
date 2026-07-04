@@ -14,10 +14,32 @@ x-database: &database
 x-service: &service
   restart: unless-stopped
   env_file:
-    - .env
+    - path: .env
+      required: false
+  environment:
+    SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-docker}
+    OAUTH2_ISSUER_URI: ${OAUTH2_ISSUER_URI:-http://localhost:8080/realms/birthday-hub}
+    OAUTH2_JWK_SET_URI: ${OAUTH2_JWK_SET_URI:-http://keycloak:8080/realms/birthday-hub/protocol/openid-connect/certs}
+    GATEWAY_PORT: ${GATEWAY_PORT:-6767}
+    IDENTITY_SERVICE_PORT: ${IDENTITY_SERVICE_PORT:-6701}
+    GIFT_SERVICE_PORT: ${GIFT_SERVICE_PORT:-6702}
+    CHAT_SERVICE_PORT: ${CHAT_SERVICE_PORT:-6703}
+    NOTIFICATION_SERVICE_PORT: ${NOTIFICATION_SERVICE_PORT:-6704}
   networks: [birthdayNetwork]
 
 services:
+  keycloak:
+    image: ${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.2}
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HEALTH_ENABLED: "true"
+    ports: ["${KEYCLOAK_PORT:-8080}:8080"]
+    volumes:
+      - ./infra/keycloak:/opt/keycloak/data/import:ro
+    networks: [birthdayNetwork]
+
   identityDb:
     <<: *database
     environment:
@@ -61,6 +83,8 @@ services:
       context: .
       dockerfile: identityService/Dockerfile
     depends_on:
+      keycloak:
+        condition: service_started
       identityDb:
         condition: service_healthy
       giftService:
@@ -80,6 +104,8 @@ services:
       context: .
       dockerfile: giftService/Dockerfile
     depends_on:
+      keycloak:
+        condition: service_started
       giftDb:
         condition: service_healthy
     ports: ["${GIFT_SERVICE_PORT:-6702}:${GIFT_SERVICE_PORT:-6702}"]
@@ -97,6 +123,8 @@ services:
       context: .
       dockerfile: chatService/Dockerfile
     depends_on:
+      keycloak:
+        condition: service_started
       chatDb:
         condition: service_healthy
     ports: ["${CHAT_SERVICE_PORT:-6703}:${CHAT_SERVICE_PORT:-6703}"]
@@ -114,6 +142,8 @@ services:
       context: .
       dockerfile: notificationService/Dockerfile
     depends_on:
+      keycloak:
+        condition: service_started
       notificationDb:
         condition: service_healthy
       identityService:
@@ -133,6 +163,8 @@ services:
       context: .
       dockerfile: apiGateway/Dockerfile
     depends_on:
+      keycloak:
+        condition: service_started
       identityService:
         condition: service_healthy
       giftService:
@@ -141,7 +173,7 @@ services:
         condition: service_healthy
       notificationService:
         condition: service_healthy
-    ports: ["${GATEWAY_PORT:-6967}:${GATEWAY_PORT:-6967}"]
+    ports: ["${GATEWAY_PORT:-6767}:${GATEWAY_PORT:-6767}"]
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:$${GATEWAY_PORT}/actuator/health/readiness"]
       interval: 10s

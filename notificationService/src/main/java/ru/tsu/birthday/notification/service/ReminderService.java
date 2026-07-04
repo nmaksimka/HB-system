@@ -11,6 +11,8 @@ import java.util.*;
 @Service
 @Transactional
 public class ReminderService {
+    private static final Set<Integer> MILESTONES = Set.of(30, 7, 1);
+
     private final ReminderRepository repository;
     private final IdentityClient identity;
     private final Clock clock;
@@ -23,14 +25,30 @@ public class ReminderService {
 
     public List<Reminder> refresh(UUID recipientId, int days) {
         var today = LocalDate.now(clock);
-        for (var user : identity.upcoming(recipientId, days)) {
+        var horizon = Math.min(Math.max(days, 30), 365);
+        for (var user : identity.upcoming(recipientId, horizon)) {
             var next = nextBirthday(user.birthDate(), today);
-            if (!repository.existsByRecipientIdAndBirthdayUserIdAndBirthdayDate(recipientId, user.id(), next)) {
+            var daysLeft = daysUntil(next, today);
+            if (!MILESTONES.contains(daysLeft)) {
+                continue;
+            }
+            if (!repository.existsByRecipientIdAndBirthdayUserIdAndBirthdayDateAndThresholdDays(
+                    recipientId, user.id(), next, daysLeft)) {
                 repository.save(new Reminder(
-                        UUID.randomUUID(), recipientId, user.id(), user.name(), next, Instant.now(clock)));
+                        UUID.randomUUID(), recipientId, user.id(), user.name(), next, daysLeft, Instant.now(clock)));
             }
         }
         return repository.findByRecipientIdOrderByBirthdayDateAsc(recipientId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Reminder> reminders(UUID recipientId) {
+        return repository.findByRecipientIdOrderByBirthdayDateAsc(recipientId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Reminder> unread(UUID recipientId) {
+        return repository.findByRecipientIdAndReadAtIsNullOrderByBirthdayDateAsc(recipientId);
     }
 
     public Reminder markRead(UUID recipientId, UUID reminderId) {
@@ -43,9 +61,20 @@ public class ReminderService {
         return reminder;
     }
 
+    public List<Reminder> markAllRead(UUID recipientId) {
+        var now = Instant.now(clock);
+        var reminders = repository.findByRecipientIdAndReadAtIsNullOrderByBirthdayDateAsc(recipientId);
+        reminders.forEach(reminder -> reminder.markRead(now));
+        return repository.findByRecipientIdOrderByBirthdayDateAsc(recipientId);
+    }
+
     static LocalDate nextBirthday(LocalDate birthDate, LocalDate today) {
         var day = dateInYear(birthDate, today.getYear());
         return day.isBefore(today) ? dateInYear(birthDate, today.getYear() + 1) : day;
+    }
+
+    private static int daysUntil(LocalDate date, LocalDate today) {
+        return (int) Duration.between(today.atStartOfDay(), date.atStartOfDay()).toDays();
     }
 
     private static LocalDate dateInYear(LocalDate birthDate, int year) {

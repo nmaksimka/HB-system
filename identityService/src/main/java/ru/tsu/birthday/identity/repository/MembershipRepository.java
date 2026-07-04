@@ -8,4 +8,5 @@ public interface MembershipRepository extends JpaRepository<GroupMembership, UUI
     List<GroupMembership> findByUserId(UUID userId);
     List<GroupMembership> findByGroupId(UUID groupId);
     boolean existsByGroupIdAndUserId(UUID groupId, UUID userId);
+    void deleteByGroupIdAndUserId(UUID groupId, UUID userId);
 }

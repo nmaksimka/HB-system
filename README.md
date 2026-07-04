@@ -1,220 +1,134 @@
 # HB-system
 
-Микросервисная платформа для организации поздравлений с днём рождения.
+Микросервисная система для организации поздравлений с днем рождения: пользователи, группы друзей, wishlist, секретный чат подарка и уведомления.
 
-## Технологии
+## Stack
 
-- Java 21
-- Spring Boot 4.0.7
-- Spring Cloud 2025.1.2
-- Gradle Kotlin DSL 8.14.3
-- Spring Cloud Gateway 5 и OpenFeign 5
-- PostgreSQL 17 и Flyway
-- WebSocket/STOMP
-- Resilience4j
-- Springdoc OpenAPI 3.0.3
-- Actuator, Micrometer и Prometheus registry
-- Docker Compose
+- Java 21, Spring Boot 4.0.7, Spring Cloud 2025.1.2, Gradle Kotlin DSL
+- Spring Cloud Gateway, Web MVC/WebFlux, WebSocket/STOMP, OpenFeign
+- Spring Security OAuth2 Resource Server + Keycloak для локального dev auth
+- PostgreSQL 17, Flyway, Hibernate `ddl-auto: validate`
+- Docker Compose, Actuator, Prometheus registry, Springdoc OpenAPI
 
-## Модули
+## Services
 
-| Модуль | Порт | Назначение |
+| Service | Port | Role |
 |---|---:|---|
-| `apiGateway` | 6767 | Единая точка входа, маршрутизация, CORS и correlation ID |
-| `identityService` | 6701 | Пользователи, дни рождения, группы и подписки |
-| `giftService` | 6702 | Списки желаемых подарков |
-| `chatService` | 6703 | Секретные обсуждения подарков и real-time сообщения |
-| `notificationService` | 6704 | Создание и чтение напоминаний |
+| `apiGateway` | 6767 | единая точка входа, CORS, routes, static web UI |
+| `keycloak` | 8080 | локальный OIDC provider и demo users |
+| `identityService` | 6701 | users, groups, memberships, subscriptions |
+| `giftService` | 6702 | wishlist |
+| `chatService` | 6703 | secret gift chat |
+| `notificationService` | 6704 | birthday reminders |
 
-Каждый stateful-сервис владеет отдельной PostgreSQL-базой и миграциями Flyway.
-Общих JPA entity и общих таблиц между сервисами нет.
+Внешний клиент должен ходить через Gateway `http://localhost:6767`. `/internal/**` через Gateway не публикуется.
 
-## Структура
-
-Структура модулей приведена к форме проекта DeliveryHub:
-
-```text
-HB-system/
-├── apiGateway/
-│   ├── Dockerfile
-│   └── src/main/java/.../gateway/
-│       └── filter/
-├── identityService/
-│   ├── Dockerfile
-│   └── src/main/java/.../identity/
-│       ├── client/
-│       ├── config/
-│       ├── controller/
-│       ├── dto/
-│       ├── entity/
-│       ├── mapper/
-│       ├── repository/
-│       └── service/
-├── giftService/
-├── chatService/
-├── notificationService/
-├── docker-compose.yml
-├── build.gradle.kts
-└── settings.gradle.kts
-```
-
-CamelCase используется для Gradle-модулей, Compose-сервисов и внутренних
-идентификаторов. Java packages остаются lowercase, Spring properties —
-kebab-case, переменные окружения — UPPER_SNAKE_CASE, а SQL — snake_case согласно
-стандартам этих экосистем.
-
-## Запуск
-
-Из корня проекта:
+## Run
 
 ```powershell
 Copy-Item .env.example .env
-# Измените DB_PASSWORD в .env
-.\run.ps1
-```
-
-`run.ps1` выполняет чистую Gradle-сборку с тестами, создаёт runtime Docker images
-из готовых JAR и поднимает весь стек.
-
-Все порты, адреса сервисов, реквизиты баз данных, Docker images и таймауты
-OpenFeign централизованы в `.env`. Этот файл игнорируется Git; полный шаблон
-хранится в `.env.example`.
-
-Остановка:
-
-```powershell
-docker compose -f docker-compose.yml down
-```
-
-Удаление также томов с локальными данными:
-
-```powershell
-docker compose -f docker-compose.yml down --volumes
-```
-
-## Проверка
-
-```powershell
 .\gradlew.bat clean build
-docker compose -f docker-compose.yml config --quiet
+docker compose up --build
 ```
 
-После запуска:
+UI: http://localhost:6767
 
-- Gateway health: http://localhost:6767/actuator/health
-- Identity Swagger UI: http://localhost:6701/swagger-ui.html
-- Gift Swagger UI: http://localhost:6702/swagger-ui.html
-- Chat Swagger UI: http://localhost:6703/swagger-ui.html
-- Notification Swagger UI: http://localhost:6704/swagger-ui.html
+Keycloak admin: http://localhost:8080, `admin` / `admin` по умолчанию из `.env.example`.
 
-## Пример сценария
+Demo users импортируются в Keycloak и Flyway seed:
 
-Создание пользователей:
+| Username | Password | User id |
+|---|---|---|
+| `maxim` | `password` | `11111111-1111-1111-1111-111111111111` |
+| `anna` | `password` | `22222222-2222-2222-2222-222222222222` |
+| `ivan` | `password` | `33333333-3333-3333-3333-333333333333` |
 
-```http
-POST http://localhost:6767/api/users
-Content-Type: application/json
+Получить dev access token:
 
-{"name":"Максим","birthDate":"2003-11-18"}
+```powershell
+$token = (Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:8080/realms/birthday-hub/protocol/openid-connect/token" `
+  -ContentType "application/x-www-form-urlencoded" `
+  -Body "grant_type=password&client_id=birthday-hub-ui&username=maxim&password=password").access_token
 ```
 
-```http
-POST http://localhost:6767/api/users
-Content-Type: application/json
+В UI вставьте token в поле `Access token`. API-запросы должны передавать его как `Authorization: Bearer <token>`.
 
-{"name":"Анна","birthDate":"2004-07-15"}
+## Current User Contract
+
+Действия текущего пользователя больше не доверяют `userId`, `authorId`, `viewerId` или `subscriberId` из request body/query/path. Сервисы берут actor id из JWT claim `user_id`, с fallback на JWT `sub`.
+
+Основные endpoints через Gateway:
+
+```http
+GET    /api/me
+GET    /api/users
+GET    /api/users/{id}
+GET    /api/users/{id}/card
+
+POST   /api/groups
+GET    /api/groups
+GET    /api/groups/{groupId}/members
+PUT    /api/groups/{groupId}/members/me
+DELETE /api/groups/{groupId}/members/me
+
+POST   /api/subscriptions/users/{targetUserId}
+POST   /api/subscriptions/groups/{groupId}
+DELETE /api/subscriptions/users/{targetUserId}
+DELETE /api/subscriptions/groups/{groupId}
+GET    /api/subscriptions
+
+GET    /api/users/{userId}/wishes
+GET    /api/me/wishes
+POST   /api/me/wishes
+DELETE /api/me/wishes/{wishId}
+
+GET    /api/chat/users/{subjectUserId}/messages
+POST   /api/chat/users/{subjectUserId}/messages
+
+POST   /api/notifications/refresh?days=30
+GET    /api/notifications
+GET    /api/notifications/unread
+PUT    /api/notifications/{reminderId}/read
+PUT    /api/notifications/read-all
 ```
 
-Создание группы:
+Chat send body:
 
-```http
-POST http://localhost:6767/api/groups
-Content-Type: application/json
-
-{"name":"972501 ТГУ","ownerId":"<maximId>"}
+```json
+{"text":"Предлагаю подарок из wishlist"}
 ```
 
-Добавление участника:
+Wish create body:
 
-```http
-PUT http://localhost:6767/api/groups/<groupId>/members/<annaId>
-```
-
-Подписка на группу:
-
-```http
-POST http://localhost:6767/api/subscriptions
-Content-Type: application/json
-
-{"subscriberId":"<maximId>","targetType":"GROUP","targetId":"<groupId>"}
-```
-
-Добавление желания:
-
-```http
-POST http://localhost:6767/api/users/<annaId>/wishes
-Content-Type: application/json
-
+```json
 {
-  "title":"Наушники",
-  "description":"Полноразмерные, с шумоподавлением",
-  "link":"https://example.org/headphones",
-  "priority":1
+  "title": "Наушники",
+  "description": "Полноразмерные, с шумоподавлением",
+  "link": "https://example.org/headphones",
+  "priority": 1
 }
 ```
 
-Карточка друга:
+## Verification
 
-```http
-GET http://localhost:6767/api/users/<annaId>/card
+```powershell
+.\gradlew.bat clean build
+docker compose config
 ```
 
-Напоминания:
+Covered by tests now:
 
-```http
-POST http://localhost:6767/api/notifications/users/<maximId>/refresh?days=30
-```
+- birthday date calculations, including leap day;
+- birthday person cannot read/write own secret chat;
+- repeated subscription is idempotent;
+- user cannot delete another user's wishlist item;
+- user cannot mark another user's reminder as read.
 
-Сообщение в секретный чат:
+## Notes
 
-```http
-POST http://localhost:6767/api/chat/users/<annaId>/messages
-Content-Type: application/json
-
-{"authorId":"<maximId>","text":"Предлагаю подарить первый пункт из списка"}
-```
-
-Именинник не может читать собственный секретный чат или писать в него.
-
-### Real-time чат
-
-- STOMP endpoint: `ws://localhost:6767/ws`
-- отправка: `/app/chat/<birthdayUserId>`
-- подписка: `/topic/chat/<birthdayUserId>`
-- payload: `{"authorId":"<authorId>","text":"..."}`
-
-## Архитектурные решения
-
-- DTO отделены от JPA entity.
-- Контроллеры не содержат бизнес-логику.
-- Constructor injection используется во всех компонентах.
-- Транзакции задаются на уровне сервисов; чтение помечено `readOnly`.
-- Ошибки HTTP возвращаются как RFC 9457 `ProblemDetail`.
-- Hibernate работает с `ddl-auto: validate`; схемой управляет только Flyway.
-- `open-in-view` отключён.
-- Feign имеет короткие connect/read timeouts и circuit breaker.
-- Сбой зависимого сервиса возвращает 503 и не маскируется пустыми данными.
-- Время передаётся через `Clock`, что делает тесты детерминированными.
-- Gateway создаёт или прокидывает `X-Correlation-Id`.
-- Контейнеры приложений запускаются не от root.
-- Readiness health checks управляют порядком запуска Compose.
-- Пароль БД можно передавать только через окружение; production-секреты не
-  должны храниться в Git.
-
-OpenFeign сохранён согласно требованиям проекта. Для нового production-кода
-следует также оценить Spring HTTP Service Clients: OpenFeign находится в режиме
-feature-complete.
-
-Аутентификация намеренно не реализована самодельным JWT. Следующий безопасный
-шаг — подключение внешнего OIDC-провайдера (Keycloak, Auth0, Яндекс ID) и
-настройка Gateway/сервисов как OAuth2 Resource Server.
+- Schemas are managed by Flyway only; Hibernate stays on `validate`.
+- `identityService` exposes `/internal/users/{id}/exists` and `/internal/users/{id}` for service-to-service checks.
+- `notificationService` still has manual refresh for demo; scheduled reminder generation and notification preferences remain the next backend step.
+- Web UI is currently the static Gateway UI with a dev token field. A dedicated React/Vite frontend module is still pending.

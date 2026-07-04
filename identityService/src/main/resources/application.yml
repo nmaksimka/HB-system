@@ -7,6 +7,12 @@ spring:
   threads:
     virtual:
       enabled: true
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OAUTH2_ISSUER_URI:http://localhost:8080/realms/birthday-hub}
+          jwk-set-uri: ${OAUTH2_JWK_SET_URI:http://localhost:8080/realms/birthday-hub/protocol/openid-connect/certs}
   datasource:
     url: ${IDENTITY_DB_URL:jdbc:postgresql://localhost:5433/identity}
     username: ${DB_USER:birthday}
@@ -32,6 +38,12 @@ spring:
 clients:
   gift:
     url: ${GIFT_SERVICE_URL:http://localhost:6702}
+birthday:
+  keycloak:
+    base-url: ${KEYCLOAK_ADMIN_URL:http://localhost:8080}
+    realm: ${KEYCLOAK_REALM:birthday-hub}
+    admin-username: ${KEYCLOAK_ADMIN_USERNAME:admin}
+    admin-password: ${KEYCLOAK_ADMIN_PASSWORD:admin}
 management:
   endpoint:
     health:

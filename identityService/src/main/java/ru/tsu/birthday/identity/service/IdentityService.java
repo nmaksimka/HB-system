@@ -34,6 +34,10 @@ public class IdentityService {
         return users.save(new User(UUID.randomUUID(), name, birthDate));
     }
 
+    public User createProfile(UUID id, String name, LocalDate birthDate) {
+        return users.findById(id).orElseGet(() -> users.save(new User(id, name, birthDate)));
+    }
+
     @Transactional(readOnly = true)
     public List<User> users() { return users.findAll(); }
 
@@ -64,7 +68,72 @@ public class IdentityService {
         user(subscriberId);
         if (type == Subscription.TargetType.USER) user(targetId);
         else if (!groups.existsById(targetId)) throw new NoSuchElementException("Group not found: " + targetId);
+        var existing = subscriptions.findBySubscriberIdAndTargetTypeAndTargetId(subscriberId, type, targetId);
+        if (existing.isPresent()) return existing.get();
         return subscriptions.save(new Subscription(UUID.randomUUID(), subscriberId, type, targetId));
+    }
+
+    public Subscription subscribeGroupAndMembers(UUID subscriberId, UUID groupId) {
+        user(subscriberId);
+        if (!groups.existsById(groupId)) throw new NoSuchElementException("Group not found: " + groupId);
+        var memberIds = memberships.findByGroupId(groupId).stream()
+                .map(GroupMembership::getUserId)
+                .filter(memberId -> !memberId.equals(subscriberId))
+                .toList();
+        if (memberIds.isEmpty()) {
+            throw new IllegalArgumentException("There are no other users in this group");
+        }
+        var alreadySubscribed = memberIds.stream()
+                .filter(memberId -> subscriptions
+                        .findBySubscriberIdAndTargetTypeAndTargetId(
+                                subscriberId, Subscription.TargetType.USER, memberId)
+                        .isPresent())
+                .count();
+        if (alreadySubscribed == memberIds.size()) {
+            throw new IllegalArgumentException("You are already subscribed to all users in this group");
+        }
+        var groupSubscription = subscribe(subscriberId, Subscription.TargetType.GROUP, groupId);
+        memberIds.forEach(memberId -> subscribe(subscriberId, Subscription.TargetType.USER, memberId));
+        return groupSubscription;
+    }
+
+    public void unsubscribeGroupAndMembers(UUID subscriberId, UUID groupId) {
+        user(subscriberId);
+        if (!groups.existsById(groupId)) throw new NoSuchElementException("Group not found: " + groupId);
+        subscriptions.deleteBySubscriberIdAndTargetTypeAndTargetId(
+                subscriberId, Subscription.TargetType.GROUP, groupId);
+        memberships.findByGroupId(groupId).stream()
+                .map(GroupMembership::getUserId)
+                .filter(memberId -> !memberId.equals(subscriberId))
+                .forEach(memberId -> subscriptions.deleteBySubscriberIdAndTargetTypeAndTargetId(
+                        subscriberId, Subscription.TargetType.USER, memberId));
+    }
+
+    public void unsubscribe(UUID subscriberId, Subscription.TargetType type, UUID targetId) {
+        subscriptions.deleteBySubscriberIdAndTargetTypeAndTargetId(subscriberId, type, targetId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Subscription> subscriptions(UUID subscriberId) {
+        user(subscriberId);
+        return subscriptions.findBySubscriberId(subscriberId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<User> members(UUID groupId) {
+        if (!groups.existsById(groupId)) throw new NoSuchElementException("Group not found: " + groupId);
+        return users.findAllById(memberships.findByGroupId(groupId).stream()
+                .map(GroupMembership::getUserId).toList());
+    }
+
+    public void leave(UUID groupId, UUID userId) {
+        if (!groups.existsById(groupId)) throw new NoSuchElementException("Group not found: " + groupId);
+        memberships.deleteByGroupIdAndUserId(groupId, userId);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean userExists(UUID id) {
+        return users.existsById(id);
     }
 
     @Transactional(readOnly = true)
