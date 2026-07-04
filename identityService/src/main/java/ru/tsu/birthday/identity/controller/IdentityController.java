@@ -1,17 +1,16 @@
 package ru.tsu.birthday.identity.controller;
 
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.*;
+import java.util.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
-import ru.tsu.birthday.identity.service.IdentityService;
 import ru.tsu.birthday.identity.dto.*;
 import ru.tsu.birthday.identity.entity.Subscription;
 import ru.tsu.birthday.identity.mapper.IdentityMapper;
 import ru.tsu.birthday.identity.security.CurrentUser;
-import java.util.*;
+import ru.tsu.birthday.identity.service.IdentityService;
 
 @RestController
 @RequestMapping("/api")
@@ -26,17 +25,10 @@ public class IdentityController {
         this.currentUser = currentUser;
     }
 
-    @PostMapping("/users")
-    @ResponseStatus(HttpStatus.CREATED)
-    UserResponse create(@Valid @RequestBody CreateUserRequest request) {
-        return mapper.toResponse(service.createUser(request.name(), request.birthDate()));
-    }
-
-    @GetMapping("/users")
-    List<UserResponse> users() { return service.users().stream().map(mapper::toResponse).toList(); }
-
     @GetMapping("/me")
-    UserResponse me(@AuthenticationPrincipal Jwt jwt) { return mapper.toResponse(service.user(currentUser.id(jwt))); }
+    UserResponse me(@AuthenticationPrincipal Jwt jwt) {
+        return mapper.toResponse(service.user(currentUser.id(jwt)));
+    }
 
     @PostMapping("/me/profile")
     @ResponseStatus(HttpStatus.CREATED)
@@ -44,20 +36,31 @@ public class IdentityController {
         return mapper.toResponse(service.createProfile(currentUser.id(jwt), request.name(), request.birthDate()));
     }
 
-    @GetMapping("/users/{id}")
-    UserResponse user(@PathVariable UUID id) { return mapper.toResponse(service.user(id)); }
+    @GetMapping("/users")
+    List<UserResponse> users() {
+        return service.users().stream().map(mapper::toResponse).toList();
+    }
 
     @GetMapping("/users/{id}/card")
-    FriendCardResponse card(@PathVariable UUID id) { return service.card(id); }
+    FriendCardResponse card(@PathVariable UUID id) {
+        var user = service.user(id);
+        return new FriendCardResponse(user.getId(), user.getName(), user.getBirthDate(), service.groupNames(id));
+    }
 
     @PostMapping("/groups")
     @ResponseStatus(HttpStatus.CREATED)
     GroupResponse createGroup(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody CreateGroupRequest request) {
-        return mapper.toResponse(service.createGroup(request.name(), currentUser.id(jwt)));
+        var ownerId = currentUser.id(jwt);
+        return mapper.toResponse(service.createGroup(request.name(), ownerId), List.of(ownerId));
     }
 
     @GetMapping("/groups")
-    List<GroupResponse> groups() { return service.groups().stream().map(mapper::toResponse).toList(); }
+    List<GroupResponse> groups() {
+        var members = service.membersByGroup();
+        return service.groups().stream()
+                .map(group -> mapper.toResponse(group, members.getOrDefault(group.getId(), List.of())))
+                .toList();
+    }
 
     @GetMapping("/groups/{groupId}/members")
     List<UserResponse> members(@PathVariable UUID groupId) {
@@ -85,7 +88,7 @@ public class IdentityController {
     @PostMapping("/subscriptions/groups/{groupId}")
     @ResponseStatus(HttpStatus.CREATED)
     SubscriptionResponse subscribeGroup(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID groupId) {
-        return mapper.toResponse(service.subscribeGroupAndMembers(currentUser.id(jwt), groupId));
+        return mapper.toResponse(service.subscribe(currentUser.id(jwt), Subscription.TargetType.GROUP, groupId));
     }
 
     @DeleteMapping("/subscriptions/users/{targetUserId}")
@@ -97,35 +100,16 @@ public class IdentityController {
     @DeleteMapping("/subscriptions/groups/{groupId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     void unsubscribeGroup(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID groupId) {
-        service.unsubscribeGroupAndMembers(currentUser.id(jwt), groupId);
+        service.unsubscribe(currentUser.id(jwt), Subscription.TargetType.GROUP, groupId);
     }
 
     @GetMapping("/subscriptions")
     List<SubscriptionResponse> subscriptions(@AuthenticationPrincipal Jwt jwt) {
         return service.subscriptions(currentUser.id(jwt)).stream().map(mapper::toResponse).toList();
     }
-}
 
-@RestController
-@RequestMapping("/internal")
-class InternalIdentityController {
-    private final IdentityService service;
-    private final IdentityMapper mapper;
-
-    InternalIdentityController(IdentityService service, IdentityMapper mapper) {
-        this.service = service;
-        this.mapper = mapper;
-    }
-
-    @GetMapping("/users/{id}/exists")
-    boolean exists(@PathVariable UUID id) { return service.userExists(id); }
-
-    @GetMapping("/users/{id}")
-    UserResponse internalUser(@PathVariable UUID id) { return mapper.toResponse(service.user(id)); }
-
-    @GetMapping("/subscribers/{subscriberId}/upcoming")
-    List<UserResponse> upcoming(@PathVariable UUID subscriberId,
-                            @RequestParam(defaultValue = "14") @Min(1) @Max(365) int days) {
-        return service.upcomingForSubscriber(subscriberId, days).stream().map(mapper::toResponse).toList();
+    @GetMapping("/me/upcoming")
+    List<UpcomingBirthdayResponse> upcoming(@AuthenticationPrincipal Jwt jwt) {
+        return service.upcomingForSubscriber(currentUser.id(jwt), 366);
     }
 }

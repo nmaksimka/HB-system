@@ -1,10 +1,15 @@
 package ru.tsu.birthday.identity.service;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.client.RestClient;
@@ -21,61 +26,73 @@ public class RegistrationService {
 
     public RegistrationService(
             IdentityService identityService,
-            @Value("${birthday.keycloak.base-url:http://localhost:8080}") String keycloakBaseUrl,
-            @Value("${birthday.keycloak.realm:birthday-hub}") String realm,
-            @Value("${birthday.keycloak.admin-username:admin}") String adminUsername,
-            @Value("${birthday.keycloak.admin-password:admin}") String adminPassword
+            @Value("${birthday.keycloak.base-url}") String keycloakBaseUrl,
+            @Value("${birthday.keycloak.realm}") String realm,
+            @Value("${birthday.keycloak.admin-username}") String adminUsername,
+            @Value("${birthday.keycloak.admin-password}") String adminPassword
     ) {
+        var requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(Duration.ofSeconds(2));
+        requestFactory.setReadTimeout(Duration.ofSeconds(5));
         this.identityService = identityService;
-        this.keycloak = RestClient.builder().baseUrl(keycloakBaseUrl).build();
+        this.keycloak = RestClient.builder().baseUrl(keycloakBaseUrl).requestFactory(requestFactory).build();
         this.realm = realm;
         this.adminUsername = adminUsername;
         this.adminPassword = adminPassword;
     }
 
     public User register(RegisterRequest request) {
-        var userId = createKeycloakUser(request);
-        return identityService.createProfile(userId, request.username().trim(), request.birthDate());
+        var token = adminToken();
+        var userId = createKeycloakUser(token, request);
+        try {
+            return identityService.createProfile(userId, request.name(), request.birthDate());
+        } catch (RuntimeException ex) {
+            deleteKeycloakUser(token, userId);
+            throw ex;
+        }
     }
 
-    private UUID createKeycloakUser(RegisterRequest request) {
-        var token = adminToken();
-        var username = request.username().trim();
-        var email = username + "@birthday-hub.local";
+    private UUID createKeycloakUser(String token, RegisterRequest request) {
+        var username = request.username().trim().toLowerCase();
         var payload = Map.of(
                 "username", username,
                 "enabled", true,
-                "firstName", username,
-                "lastName", "Birthday Hub",
-                "email", email,
+                "firstName", request.name().trim(),
+                "lastName", "-",
+                "email", username + "@birthday-hub.local",
                 "emailVerified", true,
                 "requiredActions", List.of(),
-                "credentials", List.of(Map.of(
-                        "type", "password",
-                        "value", request.password(),
-                        "temporary", false
-                ))
+                "credentials", List.of(Map.of("type", "password", "value", request.password(), "temporary", false))
         );
 
-        var responseEntity = keycloak.post()
+        var response = keycloak.post()
                 .uri("/admin/realms/{realm}/users", realm)
                 .header("Authorization", "Bearer " + token)
                 .body(payload)
                 .retrieve()
-                .onStatus(HttpStatusCode::isError, (requestSpec, response) -> {
-                    if (response.getStatusCode().value() == 409) {
-                        throw new IllegalArgumentException("Пользователь с таким логином уже существует");
+                .onStatus(HttpStatusCode::isError, (req, res) -> {
+                    if (res.getStatusCode().value() == 409) {
+                        throw new RegistrationException(HttpStatus.CONFLICT, "This login is already taken");
                     }
-                    throw new IllegalStateException("Keycloak не создал пользователя: " + response.getStatusCode());
+                    throw new RegistrationException(HttpStatus.BAD_GATEWAY,
+                            "Authorization server rejected the user: " + res.getStatusCode());
                 })
                 .toBodilessEntity();
 
-        var location = responseEntity.getHeaders().getLocation();
+        var location = response.getHeaders().getLocation();
         if (location == null) {
-            throw new IllegalStateException("Keycloak не вернул id созданного пользователя");
+            throw new RegistrationException(HttpStatus.BAD_GATEWAY, "Authorization server did not return user id");
         }
         var path = location.getPath();
         return UUID.fromString(path.substring(path.lastIndexOf('/') + 1));
+    }
+
+    private void deleteKeycloakUser(String token, UUID userId) {
+        keycloak.delete()
+                .uri("/admin/realms/{realm}/users/{id}", realm, userId)
+                .header("Authorization", "Bearer " + token)
+                .retrieve()
+                .toBodilessEntity();
     }
 
     private String adminToken() {
@@ -85,17 +102,18 @@ public class RegistrationService {
         form.add("username", adminUsername);
         form.add("password", adminPassword);
 
-        @SuppressWarnings("unchecked")
         var response = keycloak.post()
                 .uri("/realms/master/protocol/openid-connect/token")
-                .contentType(org.springframework.http.MediaType.APPLICATION_FORM_URLENCODED)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .body(form)
                 .retrieve()
-                .body(Map.class);
+                .body(TokenResponse.class);
 
-        if (response == null || response.get("access_token") == null) {
-            throw new IllegalStateException("Keycloak admin token is empty");
+        if (response == null || response.accessToken() == null) {
+            throw new RegistrationException(HttpStatus.BAD_GATEWAY, "Authorization server returned empty token");
         }
-        return response.get("access_token").toString();
+        return response.accessToken();
     }
+
+    private record TokenResponse(@JsonProperty("access_token") String accessToken) {}
 }
