@@ -37,12 +37,12 @@ const els = {
   pageTitle: $("#pageTitle"),
   profileSetup: $("#profileSetup"),
   profileForm: $("#profileForm"),
-  refreshAllButton: $("#refreshAllButton"),
   refreshRemindersButton: $("#refreshRemindersButton"),
-  reminderDays: $("#reminderDays"),
+  readAllRemindersButton: $("#readAllRemindersButton"),
   usersMetric: $("#usersMetric"),
   groupsMetric: $("#groupsMetric"),
   remindersMetric: $("#remindersMetric"),
+  upcomingBirthdaysList: $("#upcomingBirthdaysList"),
   remindersList: $("#remindersList"),
   peopleSearch: $("#peopleSearch"),
   usersList: $("#usersList"),
@@ -249,6 +249,7 @@ function setLoading(button, loadingText) {
 function setSection(sectionId) {
   const titles = {
     dashboard: "Кого поздравляем следующим?",
+    reminders: "Напоминания",
     people: "Друзья и идеи подарков",
     groups: "Группы поздравлений",
     wishes: "Мой wishlist",
@@ -347,6 +348,33 @@ function isGroupMember(groupId) {
   return Boolean(state.groupMembers[groupId]?.some((user) => user.id === state.me?.id));
 }
 
+function joinedGroups() {
+  return state.groups.filter((group) => isGroupMember(group.id));
+}
+
+function groupMemberIds(groupId) {
+  return new Set((state.groupMembers[groupId] || []).map((user) => user.id));
+}
+
+function groupSubscribeTargets(groupId) {
+  return (state.groupMembers[groupId] || []).filter((user) => user.id !== state.me?.id);
+}
+
+function isSubscribedToEveryGroupMember(groupId) {
+  const targets = groupSubscribeTargets(groupId);
+  return targets.length > 0 && targets.every((user) => isFriend(user.id));
+}
+
+function upcomingUsers() {
+  const ids = friendIds();
+  groupSubscriptionIds().forEach((groupId) => {
+    groupMemberIds(groupId).forEach((userId) => {
+      if (userId !== state.me?.id) ids.add(userId);
+    });
+  });
+  return sortUsers(state.users.filter((user) => ids.has(user.id)));
+}
+
 async function loadGroupMembers() {
   const entries = await Promise.all(
     state.groups.map(async (group) => {
@@ -362,15 +390,16 @@ async function loadGroupMembers() {
 
 async function refreshReminders() {
   if (!state.me) return;
-  const days = Number(els.reminderDays.value || 30);
-  state.reminders = await api(`/api/notifications/refresh?days=${days}`, { method: "POST" });
-  renderReminders();
+  state.reminders = await api("/api/notifications/refresh?days=30", { method: "POST" });
+  renderReminderNotifications();
   renderMetrics();
 }
 
 function renderAll() {
   renderIdentity();
   renderMetrics();
+  renderUpcomingBirthdays();
+  renderReminderNotifications();
   renderUsers();
   renderGroups();
   renderFriendCard();
@@ -382,7 +411,7 @@ function renderIdentity() {
 
 function renderMetrics() {
   els.usersMetric.textContent = friendUsers().length;
-  els.groupsMetric.textContent = state.groups.length;
+  els.groupsMetric.textContent = joinedGroups().length;
   els.remindersMetric.textContent = state.reminders.filter((reminder) => !reminder.readAt).length;
 }
 
@@ -464,7 +493,7 @@ async function renderFriendCard() {
     els.friendGroups.innerHTML = card.groups.length
       ? card.groups.map((group) => `<span class="chip">${escapeHtml(group)}</span>`).join("")
       : `<span class="muted">Пока не состоит в группах.</span>`;
-    els.friendWishes.innerHTML = renderWishes(card.wishes);
+    els.friendWishes.innerHTML = renderWishes(card.wishes, false, user.id);
   } catch (error) {
     els.friendGroups.innerHTML = "";
     els.friendWishes.innerHTML = empty(error.message);
@@ -478,6 +507,14 @@ function renderGroups() {
     const members = state.groupMembers[group.id] || [];
     const subscribed = isGroupSubscribed(group.id);
     const member = isGroupMember(group.id);
+    const targets = groupSubscribeTargets(group.id);
+    const allTargetsSubscribed = isSubscribedToEveryGroupMember(group.id);
+    const subscribeDisabled = !state.me || targets.length === 0 || allTargetsSubscribed;
+    const subscribeText = targets.length === 0
+      ? "Нет других участников"
+      : allTargetsSubscribed
+        ? "Все уже в друзьях"
+        : "Подписаться на группу";
     return `
       <article class="group-card">
         <strong>${escapeHtml(group.name)}</strong>
@@ -491,7 +528,7 @@ function renderGroups() {
             : `<button type="button" data-join-group="${group.id}" ${state.me ? "" : "disabled"}>Вступить</button>`}
           ${subscribed
             ? `<button type="button" class="danger" data-unsubscribe-group="${group.id}">Отписаться</button>`
-            : `<button type="button" data-subscribe-group="${group.id}" class="secondary" ${state.me ? "" : "disabled"}>Подписаться на группу</button>`}
+            : `<button type="button" data-subscribe-group="${group.id}" class="secondary" ${subscribeDisabled ? "disabled" : ""}>${subscribeText}</button>`}
         </div>
       </article>
     `;
@@ -504,10 +541,10 @@ async function loadCurrentUserWishes() {
     return;
   }
   const wishes = await api("/api/me/wishes");
-  els.myWishesList.innerHTML = renderWishes(wishes, true);
+  els.myWishesList.innerHTML = renderWishes(wishes, true, state.me.id);
 }
 
-function renderWishes(wishes, editable = false) {
+function renderWishes(wishes, editable = false, ownerId = "") {
   if (!wishes?.length) return empty("Список желаний пока пуст");
   return wishes.map((wish) => `
     <article class="wish-card">
@@ -515,25 +552,64 @@ function renderWishes(wishes, editable = false) {
       <span class="muted">Приоритет: ${wish.priority}</span>
       ${wish.description ? `<p>${escapeHtml(wish.description)}</p>` : ""}
       ${wish.link ? `<a href="${escapeAttribute(wish.link)}" target="_blank" rel="noreferrer">Открыть ссылку</a>` : ""}
-      ${editable ? `<div class="row-actions"><button class="danger" type="button" data-delete-wish="${wish.id}">Удалить</button></div>` : ""}
+      <div class="row-actions">
+        ${editable ? `<button class="danger" type="button" data-delete-wish="${wish.id}">Удалить</button>` : reservationButton(wish, ownerId)}
+      </div>
     </article>
   `).join("");
 }
 
-function renderReminders() {
+function reservationButton(wish, ownerId) {
+  if (!state.me || ownerId === state.me.id) return "";
+  if (!isFriend(ownerId)) return `<span class="reservation-label">Добавьте в друзья, чтобы бронировать</span>`;
+  if (wish.reservedBy === state.me.id) {
+    return `
+      <span class="reservation-label own">Забронировано вами</span>
+      <button type="button" class="secondary" data-cancel-reservation="${wish.id}" data-wish-owner="${ownerId}">Отменить бронь</button>
+    `;
+  }
+  if (wish.reservedBy) {
+    return `<span class="reservation-label">Уже забронировано</span>`;
+  }
+  return `<button type="button" data-reserve-wish="${wish.id}" data-wish-owner="${ownerId}">Забронировать</button>`;
+}
+
+function renderUpcomingBirthdays() {
+  const users = upcomingUsers();
+  els.upcomingBirthdaysList.innerHTML = users.map((user) => `
+    <article class="birthday-row">
+      <div>
+        <strong>${escapeHtml(user.name)}</strong>
+        <span class="muted">${formatDate(user.birthDate)}</span>
+      </div>
+      <button type="button" class="secondary" data-open-user="${user.id}">Открыть</button>
+    </article>
+  `).join("") || empty("Пока нет ближайших дат. Добавьте друзей или подпишитесь на группу.");
+}
+
+function renderReminderNotifications() {
   els.remindersList.innerHTML = state.reminders.map((reminder) => `
-    <article class="reminder-card">
-      <strong>${escapeHtml(reminder.birthdayUserName)}</strong>
-      <span class="muted">${formatDate(reminder.birthdayDate)}</span>
+    <article class="reminder-card ${reminder.readAt ? "read" : "unread"}">
+      <div>
+        <strong>${escapeHtml(reminder.birthdayUserName)}</strong>
+        <span class="muted">${formatDate(reminder.birthdayDate)}</span>
+      </div>
       <p class="${reminder.readAt ? "status-read" : "status-unread"}">
-        ${reminder.readAt ? "Прочитано" : "Новое напоминание"}
+        ${reminder.readAt ? "Прочитано" : reminderText(reminder.thresholdDays)}
       </p>
       <div class="row-actions">
         <button type="button" data-open-user="${reminder.birthdayUserId}">Карточка</button>
         ${reminder.readAt ? "" : `<button type="button" class="secondary" data-read-reminder="${reminder.id}">Отметить</button>`}
       </div>
     </article>
-  `).join("") || empty("Напоминаний пока нет. Подпишитесь на друга или группу.");
+  `).join("") || empty("Новых уведомлений нет. Они появятся за 30, 7 и 1 день до дня рождения.");
+}
+
+function reminderText(days) {
+  if (days === 1) return "Завтра день рождения";
+  if (days === 7) return "Осталась неделя";
+  if (days === 30) return "Остался месяц";
+  return "Приближается день рождения";
 }
 
 async function subscribe(targetType, targetId) {
@@ -722,6 +798,9 @@ document.addEventListener("click", async (event) => {
   const subscribeGroupId = target.dataset?.subscribeGroup;
   const unsubscribeGroupId = target.dataset?.unsubscribeGroup;
   const deleteWishId = target.dataset?.deleteWish;
+  const reserveWishId = target.dataset?.reserveWish;
+  const cancelReservationId = target.dataset?.cancelReservation;
+  const wishOwnerId = target.dataset?.wishOwner;
   const readReminderId = target.dataset?.readReminder;
 
   try {
@@ -771,13 +850,23 @@ document.addEventListener("click", async (event) => {
     if (unsubscribeGroupId) {
       await unsubscribe("GROUP", unsubscribeGroupId);
       await Promise.all([loadCoreData(), refreshReminders()]);
-      showToast("Подписка на группу отключена");
+      showToast("Подписка на группу отключена, друзья из группы удалены");
     }
     if (deleteWishId) {
       await api(`/api/me/wishes/${deleteWishId}`, { method: "DELETE" });
       await loadCurrentUserWishes();
       if (state.selectedUserId === state.me?.id) await renderFriendCard();
       showToast("Желание удалено");
+    }
+    if (reserveWishId && wishOwnerId) {
+      await api(`/api/users/${wishOwnerId}/wishes/${reserveWishId}/reservation`, { method: "PUT" });
+      await renderFriendCard();
+      showToast("Подарок забронирован");
+    }
+    if (cancelReservationId && wishOwnerId) {
+      await api(`/api/users/${wishOwnerId}/wishes/${cancelReservationId}/reservation`, { method: "DELETE" });
+      await renderFriendCard();
+      showToast("Бронь снята");
     }
     if (readReminderId) {
       await api(`/api/notifications/${readReminderId}/read`, { method: "PUT" });
@@ -832,23 +921,21 @@ els.profileForm.addEventListener("submit", async (event) => {
   }
 });
 
-els.refreshAllButton.addEventListener("click", async () => {
-  const restore = setLoading(els.refreshAllButton, "Обновляем...");
-  try {
-    await loadCoreData();
-    await Promise.allSettled([refreshReminders(), loadCurrentUserWishes()]);
-    showToast("Данные обновлены");
-  } catch (error) {
-    showToast(error.message);
-  } finally {
-    restore();
-  }
-});
-
 els.refreshRemindersButton.addEventListener("click", async () => {
   try {
     await refreshReminders();
     showToast("Напоминания обновлены");
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+els.readAllRemindersButton.addEventListener("click", async () => {
+  try {
+    state.reminders = await api("/api/notifications/read-all", { method: "PUT" });
+    renderReminderNotifications();
+    renderMetrics();
+    showToast("Напоминания прочитаны");
   } catch (error) {
     showToast(error.message);
   }

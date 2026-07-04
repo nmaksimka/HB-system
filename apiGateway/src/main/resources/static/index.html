@@ -93,6 +93,7 @@
 
       <nav class="nav" aria-label="Основные разделы">
         <a href="#dashboard" class="active" data-section-link="dashboard">Обзор</a>
+        <a href="#reminders" data-section-link="reminders">Напоминания</a>
         <a href="#people" data-section-link="people">Друзья</a>
         <a href="#groups" data-section-link="groups">Группы</a>
         <a href="#wishes" data-section-link="wishes">Мои желания</a>
@@ -106,9 +107,6 @@
         <div>
           <p class="eyebrow">Система организации дней рождения</p>
           <h1 id="pageTitle">Кого поздравляем следующим?</h1>
-        </div>
-        <div class="topbar-actions">
-          <button id="refreshAllButton" class="secondary" type="button">Обновить</button>
         </div>
       </header>
 
@@ -132,7 +130,7 @@
             <strong id="usersMetric">0</strong>
           </article>
           <article class="metric accent-b">
-            <span>Групп</span>
+            <span>Моих групп</span>
             <strong id="groupsMetric">0</strong>
           </article>
           <article class="metric accent-c">
@@ -146,31 +144,51 @@
             <div class="section-title">
               <div>
                 <h2>Ближайшие дни рождения</h2>
-                <p>Показываем людей, на которых вы подписаны лично или через группу.</p>
-              </div>
-              <div class="inline-controls">
-                <input id="reminderDays" type="number" min="1" max="365" value="30" aria-label="Период в днях">
-                <button id="refreshRemindersButton" type="button">Найти</button>
+                <p>Отсортировано по ближайшей дате среди друзей и участников ваших групп.</p>
               </div>
             </div>
-            <div id="remindersList" class="stack"></div>
+            <div id="upcomingBirthdaysList" class="stack"></div>
           </section>
 
-          <section class="panel quick-panel">
+          <section class="panel prep-panel">
             <div class="section-title">
               <div>
-                <h2>Гайд поздравления</h2>
-                <p>Короткий маршрут: от подписки до обсуждения подарка без обновления страницы.</p>
+                <h2>Подготовка поздравления</h2>
+                <p>Все важное рядом: дата, wishlist, бронь подарка и секретный чат для плана.</p>
               </div>
             </div>
-            <ol class="guide-list">
-              <li><strong>Добавьте друзей</strong><span>Подпишитесь на конкретного человека или сразу на группу.</span></li>
-              <li><strong>Следите за датами</strong><span>Напоминания заранее покажут ближайшие дни рождения.</span></li>
-              <li><strong>Выберите подарок</strong><span>Откройте wishlist и ссылку на подходящую идею.</span></li>
-              <li><strong>Договоритесь в real-time</strong><span>Секретный чат получает сообщения без обновления страницы.</span></li>
-            </ol>
+            <div class="action-summary">
+              <article>
+                <strong>1. Откройте карточку</strong>
+                <span>Выберите друга из ближайших дат или из списка друзей.</span>
+              </article>
+              <article>
+                <strong>2. Забронируйте подарок</strong>
+                <span>Занятые идеи видны всем участникам подготовки.</span>
+              </article>
+              <article>
+                <strong>3. Обсудите детали</strong>
+                <span>Сообщения в секретном чате приходят сразу, без перезагрузки.</span>
+              </article>
+            </div>
           </section>
         </div>
+      </section>
+
+      <section id="reminders" class="view" data-section="reminders">
+        <section class="panel">
+          <div class="section-title">
+            <div>
+              <h2>Напоминания</h2>
+              <p>Уведомления появляются за 30, 7 и 1 день до дня рождения у друзей и участников групп.</p>
+            </div>
+            <div class="inline-controls">
+              <button id="refreshRemindersButton" type="button">Проверить</button>
+              <button id="readAllRemindersButton" class="secondary" type="button">Прочитать все</button>
+            </div>
+          </div>
+          <div id="remindersList" class="stack"></div>
+        </section>
       </section>
 
       <section id="people" class="view" data-section="people">
