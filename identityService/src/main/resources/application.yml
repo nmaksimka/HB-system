@@ -26,24 +26,14 @@ spring:
   flyway:
     enabled: true
     validate-migration-naming: true
-  cloud:
-    openfeign:
-      circuitbreaker:
-        enabled: true
-      client:
-        config:
-          default:
-            connect-timeout: ${OPENFEIGN_CONNECT_TIMEOUT:1000}
-            read-timeout: ${OPENFEIGN_READ_TIMEOUT:2000}
-clients:
-  gift:
-    url: ${GIFT_SERVICE_URL:http://localhost:6702}
 birthday:
   keycloak:
     base-url: ${KEYCLOAK_ADMIN_URL:http://localhost:8080}
     realm: ${KEYCLOAK_REALM:birthday-hub}
     admin-username: ${KEYCLOAK_ADMIN_USERNAME:admin}
     admin-password: ${KEYCLOAK_ADMIN_PASSWORD:admin}
+internal:
+  token: ${INTERNAL_TOKEN:local-internal-token}
 management:
   endpoint:
     health:

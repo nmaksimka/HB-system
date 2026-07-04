@@ -1,13 +1,13 @@
 package ru.tsu.birthday.identity.service;
 
+import java.time.Clock;
+import java.time.LocalDate;
+import java.util.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import ru.tsu.birthday.identity.client.GiftClient;
-import ru.tsu.birthday.identity.dto.FriendCardResponse;
+import ru.tsu.birthday.identity.dto.UpcomingBirthdayResponse;
 import ru.tsu.birthday.identity.entity.*;
 import ru.tsu.birthday.identity.repository.*;
-import java.time.*;
-import java.util.*;
 
 @Service
 @Transactional
@@ -16,119 +16,29 @@ public class IdentityService {
     private final GroupRepository groups;
     private final MembershipRepository memberships;
     private final SubscriptionRepository subscriptions;
-    private final GiftClient giftClient;
     private final Clock clock;
 
-    public IdentityService(UserRepository users, GroupRepository groups,
-                          MembershipRepository memberships, SubscriptionRepository subscriptions,
-                          GiftClient giftClient, Clock clock) {
+    public IdentityService(UserRepository users, GroupRepository groups, MembershipRepository memberships,
+                           SubscriptionRepository subscriptions, Clock clock) {
         this.users = users;
         this.groups = groups;
         this.memberships = memberships;
         this.subscriptions = subscriptions;
-        this.giftClient = giftClient;
         this.clock = clock;
     }
 
-    public User createUser(String name, LocalDate birthDate) {
-        return users.save(new User(UUID.randomUUID(), name, birthDate));
-    }
-
     public User createProfile(UUID id, String name, LocalDate birthDate) {
-        return users.findById(id).orElseGet(() -> users.save(new User(id, name, birthDate)));
+        return users.findById(id).orElseGet(() -> users.save(new User(id, name.trim(), birthDate)));
     }
 
     @Transactional(readOnly = true)
-    public List<User> users() { return users.findAll(); }
+    public List<User> users() {
+        return users.findAll().stream().sorted(Comparator.comparing(User::getName)).toList();
+    }
 
     @Transactional(readOnly = true)
     public User user(UUID id) {
         return users.findById(id).orElseThrow(() -> new NoSuchElementException("User not found: " + id));
-    }
-
-    public FriendGroup createGroup(String name, UUID ownerId) {
-        user(ownerId);
-        var group = groups.save(new FriendGroup(UUID.randomUUID(), name, ownerId));
-        memberships.save(new GroupMembership(UUID.randomUUID(), group.getId(), ownerId));
-        return group;
-    }
-
-    public void join(UUID groupId, UUID userId) {
-        if (!groups.existsById(groupId)) throw new NoSuchElementException("Group not found: " + groupId);
-        user(userId);
-        if (!memberships.existsByGroupIdAndUserId(groupId, userId)) {
-            memberships.save(new GroupMembership(UUID.randomUUID(), groupId, userId));
-        }
-    }
-
-    @Transactional(readOnly = true)
-    public List<FriendGroup> groups() { return groups.findAll(); }
-
-    public Subscription subscribe(UUID subscriberId, Subscription.TargetType type, UUID targetId) {
-        user(subscriberId);
-        if (type == Subscription.TargetType.USER) user(targetId);
-        else if (!groups.existsById(targetId)) throw new NoSuchElementException("Group not found: " + targetId);
-        var existing = subscriptions.findBySubscriberIdAndTargetTypeAndTargetId(subscriberId, type, targetId);
-        if (existing.isPresent()) return existing.get();
-        return subscriptions.save(new Subscription(UUID.randomUUID(), subscriberId, type, targetId));
-    }
-
-    public Subscription subscribeGroupAndMembers(UUID subscriberId, UUID groupId) {
-        user(subscriberId);
-        if (!groups.existsById(groupId)) throw new NoSuchElementException("Group not found: " + groupId);
-        var memberIds = memberships.findByGroupId(groupId).stream()
-                .map(GroupMembership::getUserId)
-                .filter(memberId -> !memberId.equals(subscriberId))
-                .toList();
-        if (memberIds.isEmpty()) {
-            throw new IllegalArgumentException("There are no other users in this group");
-        }
-        var alreadySubscribed = memberIds.stream()
-                .filter(memberId -> subscriptions
-                        .findBySubscriberIdAndTargetTypeAndTargetId(
-                                subscriberId, Subscription.TargetType.USER, memberId)
-                        .isPresent())
-                .count();
-        if (alreadySubscribed == memberIds.size()) {
-            throw new IllegalArgumentException("You are already subscribed to all users in this group");
-        }
-        var groupSubscription = subscribe(subscriberId, Subscription.TargetType.GROUP, groupId);
-        memberIds.forEach(memberId -> subscribe(subscriberId, Subscription.TargetType.USER, memberId));
-        return groupSubscription;
-    }
-
-    public void unsubscribeGroupAndMembers(UUID subscriberId, UUID groupId) {
-        user(subscriberId);
-        if (!groups.existsById(groupId)) throw new NoSuchElementException("Group not found: " + groupId);
-        subscriptions.deleteBySubscriberIdAndTargetTypeAndTargetId(
-                subscriberId, Subscription.TargetType.GROUP, groupId);
-        memberships.findByGroupId(groupId).stream()
-                .map(GroupMembership::getUserId)
-                .filter(memberId -> !memberId.equals(subscriberId))
-                .forEach(memberId -> subscriptions.deleteBySubscriberIdAndTargetTypeAndTargetId(
-                        subscriberId, Subscription.TargetType.USER, memberId));
-    }
-
-    public void unsubscribe(UUID subscriberId, Subscription.TargetType type, UUID targetId) {
-        subscriptions.deleteBySubscriberIdAndTargetTypeAndTargetId(subscriberId, type, targetId);
-    }
-
-    @Transactional(readOnly = true)
-    public List<Subscription> subscriptions(UUID subscriberId) {
-        user(subscriberId);
-        return subscriptions.findBySubscriberId(subscriberId);
-    }
-
-    @Transactional(readOnly = true)
-    public List<User> members(UUID groupId) {
-        if (!groups.existsById(groupId)) throw new NoSuchElementException("Group not found: " + groupId);
-        return users.findAllById(memberships.findByGroupId(groupId).stream()
-                .map(GroupMembership::getUserId).toList());
-    }
-
-    public void leave(UUID groupId, UUID userId) {
-        if (!groups.existsById(groupId)) throw new NoSuchElementException("Group not found: " + groupId);
-        memberships.deleteByGroupIdAndUserId(groupId, userId);
     }
 
     @Transactional(readOnly = true)
@@ -137,43 +47,123 @@ public class IdentityService {
     }
 
     @Transactional(readOnly = true)
-    public List<User> upcomingForSubscriber(UUID subscriberId, int days) {
-        var targetUsers = new HashSet<UUID>();
+    public List<String> groupNames(UUID userId) {
+        var groupIds = memberships.findByUserId(userId).stream().map(GroupMembership::getGroupId).toList();
+        return groups.findAllById(groupIds).stream().map(FriendGroup::getName).sorted().toList();
+    }
+
+    public FriendGroup createGroup(String name, UUID ownerId) {
+        user(ownerId);
+        var trimmed = name.trim();
+        if (groups.existsByNameIgnoreCase(trimmed)) {
+            throw new IllegalStateException("Group with this name already exists");
+        }
+        var group = groups.save(new FriendGroup(UUID.randomUUID(), trimmed, ownerId));
+        memberships.save(new GroupMembership(UUID.randomUUID(), group.getId(), ownerId));
+        return group;
+    }
+
+    @Transactional(readOnly = true)
+    public List<FriendGroup> groups() {
+        return groups.findAll().stream().sorted(Comparator.comparing(FriendGroup::getName)).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public Map<UUID, List<UUID>> membersByGroup() {
+        var result = new HashMap<UUID, List<UUID>>();
+        for (var membership : memberships.findAll()) {
+            result.computeIfAbsent(membership.getGroupId(), id -> new ArrayList<>()).add(membership.getUserId());
+        }
+        return result;
+    }
+
+    @Transactional(readOnly = true)
+    public List<User> members(UUID groupId) {
+        requireGroup(groupId);
+        return users.findAllById(memberIds(groupId));
+    }
+
+    public void join(UUID groupId, UUID userId) {
+        requireGroup(groupId);
+        user(userId);
+        if (!memberships.existsByGroupIdAndUserId(groupId, userId)) {
+            memberships.save(new GroupMembership(UUID.randomUUID(), groupId, userId));
+        }
+    }
+
+    public void leave(UUID groupId, UUID userId) {
+        requireGroup(groupId);
+        memberships.deleteByGroupIdAndUserId(groupId, userId);
+    }
+
+    public Subscription subscribe(UUID subscriberId, Subscription.TargetType type, UUID targetId) {
+        user(subscriberId);
+        if (type == Subscription.TargetType.USER) {
+            if (subscriberId.equals(targetId)) {
+                throw new IllegalArgumentException("You cannot subscribe to yourself");
+            }
+            user(targetId);
+        } else {
+            requireGroup(targetId);
+        }
+        return subscriptions.findBySubscriberIdAndTargetTypeAndTargetId(subscriberId, type, targetId)
+                .orElseGet(() -> subscriptions.save(new Subscription(UUID.randomUUID(), subscriberId, type, targetId)));
+    }
+
+    public void unsubscribe(UUID subscriberId, Subscription.TargetType type, UUID targetId) {
+        subscriptions.deleteBySubscriberIdAndTargetTypeAndTargetId(subscriberId, type, targetId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Subscription> subscriptions(UUID subscriberId) {
+        return subscriptions.findBySubscriberId(subscriberId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<UUID> subscriberIds() {
+        return subscriptions.findDistinctSubscriberIds();
+    }
+
+    @Transactional(readOnly = true)
+    public List<UpcomingBirthdayResponse> upcomingForSubscriber(UUID subscriberId, int days) {
+        var targetIds = new HashSet<UUID>();
         for (var subscription : subscriptions.findBySubscriberId(subscriberId)) {
             if (subscription.getTargetType() == Subscription.TargetType.USER) {
-                targetUsers.add(subscription.getTargetId());
+                targetIds.add(subscription.getTargetId());
             } else {
-                memberships.findByGroupId(subscription.getTargetId()).stream()
-                        .map(GroupMembership::getUserId).forEach(targetUsers::add);
+                targetIds.addAll(memberIds(subscription.getTargetId()));
             }
         }
+        targetIds.remove(subscriberId);
         var today = LocalDate.now(clock);
-        return users.findAllById(targetUsers).stream()
-                .filter(u -> daysUntil(u.getBirthDate(), today) <= days)
-                .sorted(Comparator.comparingInt(u -> daysUntil(u.getBirthDate(), today)))
+        return users.findAllById(targetIds).stream()
+                .map(user -> new UpcomingBirthdayResponse(user.getId(), user.getName(), user.getBirthDate(),
+                        Birthdays.next(user.getBirthDate(), today), Birthdays.daysUntil(user.getBirthDate(), today)))
+                .filter(upcoming -> upcoming.daysLeft() <= days)
+                .sorted(Comparator.comparingInt(UpcomingBirthdayResponse::daysLeft))
                 .toList();
     }
 
     @Transactional(readOnly = true)
-    public FriendCardResponse card(UUID id) {
-        var user = user(id);
-        var groupList = memberships.findByUserId(id).stream()
-                .map(GroupMembership::getGroupId).map(groups::findById)
-                .flatMap(Optional::stream).map(FriendGroup::getName).toList();
-        return new FriendCardResponse(user.getId(), user.getName(), user.getBirthDate(), groupList,
-                giftClient.wishes(id), "/api/chat/users/" + id + "/messages");
-    }
-
-    public static int daysUntil(LocalDate birthDate, LocalDate today) {
-        var birthday = safeDate(today.getYear(), birthDate);
-        if (birthday.isBefore(today)) birthday = safeDate(today.getYear() + 1, birthDate);
-        return (int) Duration.between(today.atStartOfDay(), birthday.atStartOfDay()).toDays();
-    }
-
-    private static LocalDate safeDate(int year, LocalDate birthDate) {
-        if (birthDate.getMonth() == Month.FEBRUARY && birthDate.getDayOfMonth() == 29 && !Year.isLeap(year)) {
-            return LocalDate.of(year, Month.FEBRUARY, 28);
+    public boolean canDiscuss(UUID subjectId, UUID viewerId) {
+        if (subjectId.equals(viewerId) || !users.existsById(subjectId)) {
+            return false;
         }
-        return birthDate.withYear(year);
+        if (subscriptions.findBySubscriberIdAndTargetTypeAndTargetId(
+                viewerId, Subscription.TargetType.USER, subjectId).isPresent()) {
+            return true;
+        }
+        var viewerGroups = memberships.findByUserId(viewerId).stream().map(GroupMembership::getGroupId).toList();
+        return memberships.findByUserId(subjectId).stream().anyMatch(m -> viewerGroups.contains(m.getGroupId()));
+    }
+
+    private List<UUID> memberIds(UUID groupId) {
+        return memberships.findByGroupId(groupId).stream().map(GroupMembership::getUserId).toList();
+    }
+
+    private void requireGroup(UUID groupId) {
+        if (!groups.existsById(groupId)) {
+            throw new NoSuchElementException("Group not found: " + groupId);
+        }
     }
 }

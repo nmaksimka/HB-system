@@ -19,18 +19,26 @@ spring:
               '[/**]':
                 allowed-origins:
                   - ${FRONTEND_ALLOWED_ORIGIN:http://localhost:5173}
-                  - http://localhost:6767
-                allowed-methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
-                allowed-headers: [Authorization, Content-Type, X-Requested-With]
+                  - http://localhost:${GATEWAY_PORT:6767}
+                allowed-methods: [GET, POST, PUT, DELETE, OPTIONS]
+                allowed-headers: [Authorization, Content-Type, X-Correlation-Id]
           routes:
             - id: giftService
               uri: ${GIFT_SERVICE_URL:http://localhost:6702}
               predicates:
                 - Path=/api/me/wishes,/api/me/wishes/**,/api/users/*/wishes,/api/users/*/wishes/**
+            - id: fundraiserService
+              uri: ${FUNDRAISER_SERVICE_URL:http://localhost:6705}
+              predicates:
+                - Path=/api/fundraisers,/api/fundraisers/**,/api/users/*/fundraisers
+            - id: bankService
+              uri: ${BANK_SERVICE_URL:http://localhost:6706}
+              predicates:
+                - Path=/api/bank/**
             - id: chatWebSocket
               uri: ${CHAT_SERVICE_WS_URL:ws://localhost:6703}
               predicates:
-                - Path=/ws/**
+                - Path=/ws,/ws/**
             - id: chatService
               uri: ${CHAT_SERVICE_URL:http://localhost:6703}
               predicates:
@@ -38,14 +46,11 @@ spring:
             - id: notificationService
               uri: ${NOTIFICATION_SERVICE_URL:http://localhost:6704}
               predicates:
-                - Path=/api/notifications/**
+                - Path=/api/notifications,/api/notifications/**
             - id: identityService
               uri: ${IDENTITY_SERVICE_URL:http://localhost:6701}
               predicates:
-                - Path=/api/auth/**,/api/me,/api/me/**,/api/users/**,/api/groups/**,/api/subscriptions/**
+                - Path=/api/auth/**,/api/me,/api/me/**,/api/users,/api/users/**,/api/groups,/api/groups/**,/api/subscriptions,/api/subscriptions/**
 management:
   endpoint.health.probes.enabled: true
-  endpoints:
-    web:
-      exposure:
-        include: health,info,gateway,metrics,prometheus
+  endpoints.web.exposure.include: health,info

@@ -1,18 +1,18 @@
 package ru.tsu.birthday.chat.controller;
 
 import jakarta.validation.Valid;
+import java.util.List;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
-import org.springframework.messaging.handler.annotation.*;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
-import ru.tsu.birthday.chat.service.ChatService;
-import ru.tsu.birthday.chat.dto.*;
+import ru.tsu.birthday.chat.dto.MessageResponse;
+import ru.tsu.birthday.chat.dto.SendMessageRequest;
 import ru.tsu.birthday.chat.mapper.ChatMessageMapper;
 import ru.tsu.birthday.chat.security.CurrentUser;
-import java.security.Principal;
-import java.util.*;
+import ru.tsu.birthday.chat.service.ChatService;
 
 @RestController
 @RequestMapping("/api/chat")
@@ -39,18 +39,8 @@ public class ChatController {
     @ResponseStatus(HttpStatus.CREATED)
     MessageResponse send(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID subjectUserId,
                          @Valid @RequestBody SendMessageRequest request) {
-        return saveAndBroadcast(subjectUserId, currentUser.id(jwt), request);
-    }
-
-    @MessageMapping("/chat/{subjectUserId}")
-    public void websocketSend(Principal principal, @DestinationVariable UUID subjectUserId,
-                              @Valid SendMessageRequest request) {
-        saveAndBroadcast(subjectUserId, currentUser.id(principal), request);
-    }
-
-    private MessageResponse saveAndBroadcast(UUID subjectUserId, UUID authorId, SendMessageRequest request) {
-        var view = mapper.toResponse(service.send(subjectUserId, authorId, request.text()));
-        messaging.convertAndSend("/topic/chat/" + subjectUserId, view);
-        return view;
+        var message = mapper.toResponse(service.send(subjectUserId, currentUser.id(jwt), request.text()));
+        messaging.convertAndSend("/topic/chat/" + subjectUserId, message);
+        return message;
     }
 }

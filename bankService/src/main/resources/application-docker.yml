@@ -1,0 +1,5 @@
+spring:
+  datasource:
+    url: ${BANK_DB_URL:jdbc:postgresql://bankDb:5432/bank}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}

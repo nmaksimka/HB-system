@@ -1,10 +1,6 @@
 package ru.tsu.birthday.identity.dto;
 
-import ru.tsu.birthday.identity.entity.Subscription;
 import java.util.UUID;
+import ru.tsu.birthday.identity.entity.Subscription;
 
-public record SubscriptionResponse(
-        UUID subscriberId,
-        Subscription.TargetType targetType,
-        UUID targetId
-) {}
+public record SubscriptionResponse(Subscription.TargetType targetType, UUID targetId) {}

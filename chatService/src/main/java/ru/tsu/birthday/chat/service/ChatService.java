@@ -1,36 +1,44 @@
 package ru.tsu.birthday.chat.service;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import ru.tsu.birthday.chat.client.IdentityClient;
 import ru.tsu.birthday.chat.entity.ChatMessage;
 import ru.tsu.birthday.chat.repository.ChatMessageRepository;
-import java.time.*;
-import java.util.*;
 
 @Service
-@Transactional
 public class ChatService {
     private final ChatMessageRepository repository;
+    private final IdentityClient identityClient;
     private final Clock clock;
 
-    public ChatService(ChatMessageRepository repository, Clock clock) {
+    public ChatService(ChatMessageRepository repository, IdentityClient identityClient, Clock clock) {
         this.repository = repository;
+        this.identityClient = identityClient;
         this.clock = clock;
     }
 
     public ChatMessage send(UUID subjectUserId, UUID authorId, String text) {
-        if (subjectUserId.equals(authorId)) {
-            throw new IllegalArgumentException("The birthday person cannot participate in their secret gift chat");
-        }
-        return repository.save(new ChatMessage(
-                UUID.randomUUID(), subjectUserId, authorId, text, Instant.now(clock)));
+        requireAccess(subjectUserId, authorId);
+        return repository.save(new ChatMessage(UUID.randomUUID(), subjectUserId, authorId, text.trim(),
+                Instant.now(clock)));
     }
 
-    @Transactional(readOnly = true)
     public List<ChatMessage> history(UUID subjectUserId, UUID viewerId) {
+        requireAccess(subjectUserId, viewerId);
+        return repository.findTop100BySubjectUserIdOrderByCreatedAtDesc(subjectUserId).reversed();
+    }
+
+    public void requireAccess(UUID subjectUserId, UUID viewerId) {
         if (subjectUserId.equals(viewerId)) {
-            throw new IllegalArgumentException("The birthday person cannot read their secret gift chat");
+            throw new AccessDeniedException("The birthday person cannot see their secret gift chat");
         }
-        return repository.findTop100BySubjectUserIdOrderByCreatedAtAsc(subjectUserId);
+        if (!identityClient.canDiscuss(subjectUserId, viewerId)) {
+            throw new AccessDeniedException("Add this person as a friend or join a common group to see the chat");
+        }
     }
 }

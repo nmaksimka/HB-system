@@ -13,19 +13,21 @@ x-database: &database
 
 x-service: &service
   restart: unless-stopped
-  env_file:
-    - path: .env
-      required: false
-  environment:
-    SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-docker}
-    OAUTH2_ISSUER_URI: ${OAUTH2_ISSUER_URI:-http://localhost:8080/realms/birthday-hub}
-    OAUTH2_JWK_SET_URI: ${OAUTH2_JWK_SET_URI:-http://keycloak:8080/realms/birthday-hub/protocol/openid-connect/certs}
-    GATEWAY_PORT: ${GATEWAY_PORT:-6767}
-    IDENTITY_SERVICE_PORT: ${IDENTITY_SERVICE_PORT:-6701}
-    GIFT_SERVICE_PORT: ${GIFT_SERVICE_PORT:-6702}
-    CHAT_SERVICE_PORT: ${CHAT_SERVICE_PORT:-6703}
-    NOTIFICATION_SERVICE_PORT: ${NOTIFICATION_SERVICE_PORT:-6704}
   networks: [birthdayNetwork]
+  healthcheck:
+    test: ["CMD-SHELL", "wget -q --spider http://localhost:$${SERVER_PORT}/actuator/health/readiness"]
+    interval: 10s
+    timeout: 3s
+    retries: 12
+    start_period: 30s
+
+x-service-env: &serviceEnv
+  SPRING_PROFILES_ACTIVE: docker
+  OAUTH2_ISSUER_URI: ${OAUTH2_ISSUER_URI:-http://localhost:8080/realms/birthday-hub}
+  OAUTH2_JWK_SET_URI: http://keycloak:8080/realms/birthday-hub/protocol/openid-connect/certs
+  DB_USER: ${DB_USER:-birthday}
+  DB_PASSWORD: ${DB_PASSWORD:-birthday}
+  INTERNAL_TOKEN: ${INTERNAL_TOKEN:-local-internal-token}
 
 services:
   keycloak:
@@ -40,146 +42,186 @@ services:
       - ./infra/keycloak:/opt/keycloak/data/import:ro
     networks: [birthdayNetwork]
 
+  kafka:
+    image: ${KAFKA_IMAGE:-apache/kafka:3.9.0}
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 15s
+    networks: [birthdayNetwork]
+
   identityDb:
     <<: *database
     environment:
-      POSTGRES_DB: ${IDENTITY_DB_NAME:-identity}
+      POSTGRES_DB: identity
       POSTGRES_USER: ${DB_USER:-birthday}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-birthday}
-    ports: ["${IDENTITY_DB_PORT:-5433}:5432"]
     volumes: [identityData:/var/lib/postgresql/data]
 
   giftDb:
     <<: *database
     environment:
-      POSTGRES_DB: ${GIFT_DB_NAME:-gift}
+      POSTGRES_DB: gift
       POSTGRES_USER: ${DB_USER:-birthday}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-birthday}
-    ports: ["${GIFT_DB_PORT:-5434}:5432"]
     volumes: [giftData:/var/lib/postgresql/data]
 
   chatDb:
     <<: *database
     environment:
-      POSTGRES_DB: ${CHAT_DB_NAME:-chat}
+      POSTGRES_DB: chat
       POSTGRES_USER: ${DB_USER:-birthday}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-birthday}
-    ports: ["${CHAT_DB_PORT:-5435}:5432"]
     volumes: [chatData:/var/lib/postgresql/data]
 
   notificationDb:
     <<: *database
     environment:
-      POSTGRES_DB: ${NOTIFICATION_DB_NAME:-notification}
+      POSTGRES_DB: notification
       POSTGRES_USER: ${DB_USER:-birthday}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-birthday}
-    ports: ["${NOTIFICATION_DB_PORT:-5436}:5432"]
     volumes: [notificationData:/var/lib/postgresql/data]
+
+  fundraiserDb:
+    <<: *database
+    environment:
+      POSTGRES_DB: fundraiser
+      POSTGRES_USER: ${DB_USER:-birthday}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-birthday}
+    volumes: [fundraiserData:/var/lib/postgresql/data]
+
+  bankDb:
+    <<: *database
+    environment:
+      POSTGRES_DB: bank
+      POSTGRES_USER: ${DB_USER:-birthday}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-birthday}
+    volumes: [bankData:/var/lib/postgresql/data]
 
   identityService:
     <<: *service
-    image: ${IDENTITY_SERVICE_IMAGE:-birthdayplatform/identity-service:local}
+    image: birthdayplatform/identity-service:local
     build:
       context: .
       dockerfile: identityService/Dockerfile
+    environment:
+      <<: *serviceEnv
+      SERVER_PORT: 6701
+      KEYCLOAK_ADMIN_URL: http://keycloak:8080
+      KEYCLOAK_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
     depends_on:
-      keycloak:
-        condition: service_started
-      identityDb:
-        condition: service_healthy
-      giftService:
-        condition: service_healthy
-    ports: ["${IDENTITY_SERVICE_PORT:-6701}:${IDENTITY_SERVICE_PORT:-6701}"]
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:$${IDENTITY_SERVICE_PORT}/actuator/health/readiness"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-      start_period: 25s
+      keycloak: { condition: service_started }
+      identityDb: { condition: service_healthy }
 
   giftService:
     <<: *service
-    image: ${GIFT_SERVICE_IMAGE:-birthdayplatform/gift-service:local}
+    image: birthdayplatform/gift-service:local
     build:
       context: .
       dockerfile: giftService/Dockerfile
+    environment:
+      <<: *serviceEnv
+      SERVER_PORT: 6702
     depends_on:
-      keycloak:
-        condition: service_started
-      giftDb:
-        condition: service_healthy
-    ports: ["${GIFT_SERVICE_PORT:-6702}:${GIFT_SERVICE_PORT:-6702}"]
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:$${GIFT_SERVICE_PORT}/actuator/health/readiness"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-      start_period: 25s
+      giftDb: { condition: service_healthy }
+      identityService: { condition: service_healthy }
 
   chatService:
     <<: *service
-    image: ${CHAT_SERVICE_IMAGE:-birthdayplatform/chat-service:local}
+    image: birthdayplatform/chat-service:local
     build:
       context: .
       dockerfile: chatService/Dockerfile
+    environment:
+      <<: *serviceEnv
+      SERVER_PORT: 6703
     depends_on:
-      keycloak:
-        condition: service_started
-      chatDb:
-        condition: service_healthy
-    ports: ["${CHAT_SERVICE_PORT:-6703}:${CHAT_SERVICE_PORT:-6703}"]
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:$${CHAT_SERVICE_PORT}/actuator/health/readiness"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-      start_period: 25s
+      chatDb: { condition: service_healthy }
+      identityService: { condition: service_healthy }
 
   notificationService:
     <<: *service
-    image: ${NOTIFICATION_SERVICE_IMAGE:-birthdayplatform/notification-service:local}
+    image: birthdayplatform/notification-service:local
     build:
       context: .
       dockerfile: notificationService/Dockerfile
+    environment:
+      <<: *serviceEnv
+      SERVER_PORT: 6704
     depends_on:
-      keycloak:
-        condition: service_started
-      notificationDb:
-        condition: service_healthy
-      identityService:
-        condition: service_healthy
-    ports: ["${NOTIFICATION_SERVICE_PORT:-6704}:${NOTIFICATION_SERVICE_PORT:-6704}"]
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:$${NOTIFICATION_SERVICE_PORT}/actuator/health/readiness"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-      start_period: 25s
+      notificationDb: { condition: service_healthy }
+      identityService: { condition: service_healthy }
+
+  fundraiserService:
+    <<: *service
+    image: birthdayplatform/fundraiser-service:local
+    build:
+      context: .
+      dockerfile: fundraiserService/Dockerfile
+    environment:
+      <<: *serviceEnv
+      SERVER_PORT: 6705
+    depends_on:
+      fundraiserDb: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      giftService: { condition: service_healthy }
+      bankService: { condition: service_healthy }
+
+  bankService:
+    <<: *service
+    image: birthdayplatform/bank-service:local
+    build:
+      context: .
+      dockerfile: bankService/Dockerfile
+    environment:
+      <<: *serviceEnv
+      SERVER_PORT: 6706
+    depends_on:
+      bankDb: { condition: service_healthy }
+      kafka: { condition: service_healthy }
 
   apiGateway:
     <<: *service
-    image: ${API_GATEWAY_IMAGE:-birthdayplatform/api-gateway:local}
+    image: birthdayplatform/api-gateway:local
     build:
       context: .
       dockerfile: apiGateway/Dockerfile
+    environment:
+      OAUTH2_ISSUER_URI: ${OAUTH2_ISSUER_URI:-http://localhost:8080/realms/birthday-hub}
+      OAUTH2_JWK_SET_URI: http://keycloak:8080/realms/birthday-hub/protocol/openid-connect/certs
+      SERVER_PORT: 6767
+      FRONTEND_ALLOWED_ORIGIN: ${FRONTEND_ALLOWED_ORIGIN:-http://localhost:5173}
+      IDENTITY_SERVICE_URL: http://identityService:6701
+      GIFT_SERVICE_URL: http://giftService:6702
+      CHAT_SERVICE_URL: http://chatService:6703
+      CHAT_SERVICE_WS_URL: ws://chatService:6703
+      NOTIFICATION_SERVICE_URL: http://notificationService:6704
+      FUNDRAISER_SERVICE_URL: http://fundraiserService:6705
+      BANK_SERVICE_URL: http://bankService:6706
+    ports: ["${GATEWAY_PORT:-6767}:6767"]
     depends_on:
-      keycloak:
-        condition: service_started
-      identityService:
-        condition: service_healthy
-      giftService:
-        condition: service_healthy
-      chatService:
-        condition: service_healthy
-      notificationService:
-        condition: service_healthy
-    ports: ["${GATEWAY_PORT:-6767}:${GATEWAY_PORT:-6767}"]
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:$${GATEWAY_PORT}/actuator/health/readiness"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-      start_period: 20s
+      identityService: { condition: service_healthy }
+      giftService: { condition: service_healthy }
+      chatService: { condition: service_healthy }
+      notificationService: { condition: service_healthy }
+      fundraiserService: { condition: service_healthy }
+      bankService: { condition: service_healthy }
 
 networks:
   birthdayNetwork:
@@ -190,3 +232,5 @@ volumes:
   giftData:
   chatData:
   notificationData:
+  fundraiserData:
+  bankData:

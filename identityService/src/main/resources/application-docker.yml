@@ -1,9 +1,6 @@
 spring:
   datasource:
     url: ${IDENTITY_DB_URL:jdbc:postgresql://identityDb:5432/identity}
-clients:
-  gift:
-    url: ${GIFT_SERVICE_URL:http://giftService:6702}
 birthday:
   keycloak:
     base-url: ${KEYCLOAK_ADMIN_URL:http://keycloak:8080}

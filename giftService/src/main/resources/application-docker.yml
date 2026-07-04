@@ -1,3 +1,6 @@
 spring:
   datasource:
     url: ${GIFT_DB_URL:jdbc:postgresql://giftDb:5432/gift}
+clients:
+  identity:
+    url: ${IDENTITY_SERVICE_URL:http://identityService:6701}
