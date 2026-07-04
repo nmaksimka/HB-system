@@ -97,7 +97,7 @@ public class IdentityController {
     @DeleteMapping("/subscriptions/groups/{groupId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     void unsubscribeGroup(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID groupId) {
-        service.unsubscribe(currentUser.id(jwt), Subscription.TargetType.GROUP, groupId);
+        service.unsubscribeGroupAndMembers(currentUser.id(jwt), groupId);
     }
 
     @GetMapping("/subscriptions")
