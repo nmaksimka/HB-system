@@ -9,6 +9,7 @@ public record ReminderResponse(
         UUID birthdayUserId,
         String birthdayUserName,
         LocalDate birthdayDate,
+        Integer thresholdDays,
         Instant createdAt,
         Instant readAt
 ) {}

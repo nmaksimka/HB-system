@@ -12,6 +12,7 @@ public class ReminderMapper {
                 reminder.getBirthdayUserId(),
                 reminder.getBirthdayUserName(),
                 reminder.getBirthdayDate(),
+                reminder.getThresholdDays(),
                 reminder.getCreatedAt(),
                 reminder.getReadAt()
         );
