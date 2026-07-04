@@ -1,5 +1,6 @@
 package ru.tsu.birthday.gift.dto;
 
+import java.time.Instant;
 import java.util.UUID;
 
 public record WishResponse(
@@ -7,5 +8,7 @@ public record WishResponse(
         String title,
         String description,
         String link,
-        Integer priority
+        Integer priority,
+        UUID reservedBy,
+        Instant reservedAt
 ) {}

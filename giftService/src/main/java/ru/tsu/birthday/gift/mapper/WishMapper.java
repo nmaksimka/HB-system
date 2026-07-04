@@ -12,7 +12,9 @@ public class WishMapper {
                 wish.getTitle(),
                 wish.getDescription(),
                 wish.getLink(),
-                wish.getPriority()
+                wish.getPriority(),
+                wish.getReservedBy(),
+                wish.getReservedAt()
         );
     }
 }

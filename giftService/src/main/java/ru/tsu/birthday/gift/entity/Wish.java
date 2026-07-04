@@ -1,6 +1,7 @@
 package ru.tsu.birthday.gift.entity;
 
 import jakarta.persistence.*;
+import java.time.Instant;
 import java.util.UUID;
 
 @Entity
@@ -12,6 +13,8 @@ public class Wish {
     @Column(length = 1000) private String description;
     @Column(length = 500) private String link;
     @Column(nullable = false) private Integer priority;
+    private UUID reservedBy;
+    private Instant reservedAt;
 
     protected Wish() {}
     public Wish(UUID id, UUID userId, String title, String description, String link, Integer priority) {
@@ -24,4 +27,14 @@ public class Wish {
     public String getDescription() { return description; }
     public String getLink() { return link; }
     public Integer getPriority() { return priority; }
+    public UUID getReservedBy() { return reservedBy; }
+    public Instant getReservedAt() { return reservedAt; }
+    public void reserve(UUID userId, Instant timestamp) {
+        reservedBy = userId;
+        reservedAt = timestamp;
+    }
+    public void cancelReservation() {
+        reservedBy = null;
+        reservedAt = null;
+    }
 }

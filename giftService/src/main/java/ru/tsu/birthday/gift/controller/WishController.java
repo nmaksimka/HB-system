@@ -45,4 +45,15 @@ public class WishController {
     void delete(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID wishId) {
         service.delete(currentUser.id(jwt), wishId);
     }
+
+    @PutMapping("/api/users/{userId}/wishes/{wishId}/reservation")
+    WishResponse reserve(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID userId, @PathVariable UUID wishId) {
+        return mapper.toResponse(service.reserve(currentUser.id(jwt), userId, wishId));
+    }
+
+    @DeleteMapping("/api/users/{userId}/wishes/{wishId}/reservation")
+    WishResponse cancelReservation(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID userId,
+                                   @PathVariable UUID wishId) {
+        return mapper.toResponse(service.cancelReservation(currentUser.id(jwt), userId, wishId));
+    }
 }
