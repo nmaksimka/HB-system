@@ -4,301 +4,92 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Birthday Hub</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600&family=Unbounded:wght@500;700&display=swap">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <div id="authView" class="auth-layout">
-    <section class="auth-hero" aria-label="Birthday Hub">
-      <div class="brand-lockup">
-        <span class="brand-mark">BH</span>
-        <div>
-          <strong>Birthday Hub</strong>
-          <span>Дни рождения без суеты</span>
-        </div>
+  <section id="authView" class="auth hidden">
+    <div class="auth-calendar" aria-hidden="true">
+      <div class="sheet">
+        <span class="sheet-month" id="authMonth"></span>
+        <span class="sheet-day" id="authDay"></span>
+        <span class="sheet-weekday" id="authWeekday"></span>
       </div>
-      <div class="hero-copy">
-        <p class="eyebrow">Подарки, группы и напоминания</p>
-        <h1>Помогает поздравлять вовремя и выбирать подарки вместе.</h1>
-        <p>Собирайте друзей в группы, смотрите wishlist, обсуждайте идеи в секретном чате и не пропускайте ближайшие даты.</p>
-      </div>
-      <div class="hero-strip">
-        <span>Напоминания</span>
-        <span>Wishlist</span>
-        <span>Секретный чат</span>
-      </div>
-    </section>
+      <p class="auth-pitch">Дни рождения друзей, их списки желаний и общий сбор на подарок. Именинник ничего из этого не видит.</p>
+    </div>
 
-    <main class="auth-panel">
-      <div class="auth-card">
-        <div class="auth-card-head">
-          <p class="eyebrow">Аккаунт Birthday Hub</p>
-          <h2>Вход или регистрация</h2>
-          <p class="muted">Пользователь вводит только понятные поля. Токены и Keycloak остаются внутри системы.</p>
-        </div>
-
-        <div class="auth-grid">
-          <section class="auth-section">
-            <h3>Войти</h3>
-            <form id="loginForm" class="form-stack">
-              <label class="field">
-                <span>Логин</span>
-                <input name="username" autocomplete="username" placeholder="maxim" required>
-              </label>
-              <label class="field">
-                <span>Пароль</span>
-                <input name="password" type="password" autocomplete="current-password" placeholder="password" required>
-              </label>
-              <button type="submit" class="primary-action">Войти</button>
-            </form>
-
-            <div class="demo-logins" aria-label="Демо-пользователи">
-              <button type="button" data-demo-login="maxim">Maxim</button>
-              <button type="button" data-demo-login="anna">Anna</button>
-              <button type="button" data-demo-login="ivan">Ivan</button>
-            </div>
-          </section>
-
-          <section class="auth-section">
-            <h3>Регистрация</h3>
-            <form id="registerForm" class="form-stack">
-              <label class="field">
-                <span>Логин</span>
-                <input name="username" autocomplete="username" placeholder="new-user" required minlength="3" maxlength="60">
-              </label>
-              <label class="field">
-                <span>Пароль</span>
-                <input name="password" type="password" autocomplete="new-password" placeholder="Минимум 4 символа" required minlength="4" maxlength="120">
-              </label>
-              <label class="field">
-                <span>Дата рождения</span>
-                <input name="birthDate" type="date" required>
-              </label>
-              <button type="submit" class="primary-action">Зарегистрироваться</button>
-            </form>
-          </section>
-        </div>
-      </div>
-    </main>
-  </div>
-
-  <div id="appView" class="app-shell hidden">
-    <aside class="sidebar">
-      <div class="brand-lockup">
-        <span class="brand-mark">BH</span>
-        <div>
-          <strong>Birthday Hub</strong>
-          <span id="currentUserLabel">Аккаунт</span>
-        </div>
+    <div class="auth-forms">
+      <h1 class="brand">Birthday Hub</h1>
+      <div class="switch" role="tablist">
+        <button type="button" class="switch-option active" data-auth-mode="login" role="tab">Вход</button>
+        <button type="button" class="switch-option" data-auth-mode="register" role="tab">Регистрация</button>
       </div>
 
-      <nav class="nav" aria-label="Основные разделы">
-        <a href="#dashboard" class="active" data-section-link="dashboard">Обзор</a>
-        <a href="#reminders" data-section-link="reminders">Напоминания</a>
-        <a href="#people" data-section-link="people">Друзья</a>
-        <a href="#groups" data-section-link="groups">Группы</a>
-        <a href="#wishes" data-section-link="wishes">Мои желания</a>
+      <form id="loginForm" class="form" autocomplete="on">
+        <label>Логин<input name="username" autocomplete="username" required></label>
+        <label>Пароль<input name="password" type="password" autocomplete="current-password" required></label>
+        <button type="submit" class="button primary">Войти</button>
+        <p class="hint">Демо-аккаунты с паролем <code>password</code>:
+          <button type="button" class="link" data-demo="maxim">maxim</button>,
+          <button type="button" class="link" data-demo="anna">anna</button>,
+          <button type="button" class="link" data-demo="ivan">ivan</button>
+        </p>
+      </form>
+
+      <form id="registerForm" class="form hidden" autocomplete="on">
+        <label>Как вас зовут<input name="name" autocomplete="name" maxlength="120" required></label>
+        <label>Дата рождения<input name="birthDate" type="date" required></label>
+        <label>Логин<input name="username" autocomplete="username" minlength="3" maxlength="60" pattern="[a-zA-Z0-9._\-]+" title="Латинские буквы, цифры, точка, дефис и подчёркивание" required></label>
+        <label>Пароль<input name="password" type="password" autocomplete="new-password" minlength="6" maxlength="120" required></label>
+        <button type="submit" class="button primary">Создать аккаунт</button>
+      </form>
+    </div>
+  </section>
+
+  <section id="profileView" class="auth hidden">
+    <div class="auth-forms single">
+      <h1 class="brand">Почти готово</h1>
+      <p class="muted">Укажите имя и дату рождения, чтобы друзья вас нашли.</p>
+      <form id="profileForm" class="form">
+        <label>Как вас зовут<input name="name" autocomplete="name" maxlength="120" required></label>
+        <label>Дата рождения<input name="birthDate" type="date" required></label>
+        <button type="submit" class="button primary">Сохранить</button>
+      </form>
+    </div>
+  </section>
+
+  <div id="appView" class="app hidden">
+    <header class="topbar">
+      <a class="brand small" href="#upcoming">Birthday Hub</a>
+      <nav class="tabs" aria-label="Разделы">
+        <a href="#upcoming" data-tab="upcoming">Ближайшие</a>
+        <a href="#people" data-tab="people">Люди</a>
+        <a href="#groups" data-tab="groups">Группы</a>
+        <a href="#wishes" data-tab="wishes">Мой список</a>
       </nav>
-
-      <button id="logoutButton" type="button" class="logout-button">Выйти</button>
-    </aside>
-
-    <main class="workspace">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">Система организации дней рождения</p>
-          <h1 id="pageTitle">Кого поздравляем следующим?</h1>
-        </div>
-      </header>
-
-      <section id="profileSetup" class="profile-setup hidden">
-        <div>
-          <p class="eyebrow">Первый вход</p>
-          <h2>Завершите профиль</h2>
-          <p class="muted">Осталось указать имя и дату рождения для Birthday Hub.</p>
-        </div>
-        <form id="profileForm" class="profile-form">
-          <input name="name" autocomplete="name" placeholder="Имя и фамилия" required maxlength="120">
-          <input name="birthDate" type="date" required>
-          <button type="submit">Сохранить профиль</button>
-        </form>
-      </section>
-
-      <section id="dashboard" class="view active" data-section="dashboard">
-        <div class="metrics">
-          <article class="metric accent-a">
-            <span>Моих друзей</span>
-            <strong id="usersMetric">0</strong>
-          </article>
-          <article class="metric accent-b">
-            <span>Моих групп</span>
-            <strong id="groupsMetric">0</strong>
-          </article>
-          <article class="metric accent-c">
-            <span>Новых напоминаний</span>
-            <strong id="remindersMetric">0</strong>
-          </article>
-        </div>
-
-        <div class="dashboard-grid">
-          <section class="panel upcoming-panel">
-            <div class="section-title">
-              <div>
-                <h2>Ближайшие дни рождения</h2>
-                <p>Отсортировано по ближайшей дате среди друзей и участников ваших групп.</p>
-              </div>
-            </div>
-            <div id="upcomingBirthdaysList" class="stack"></div>
-          </section>
-
-          <section class="panel prep-panel">
-            <div class="section-title">
-              <div>
-                <h2>Подготовка поздравления</h2>
-                <p>Все важное рядом: дата, wishlist, бронь подарка и секретный чат для плана.</p>
-              </div>
-            </div>
-            <div class="action-summary">
-              <article>
-                <strong>1. Откройте карточку</strong>
-                <span>Выберите друга из ближайших дат или из списка друзей.</span>
-              </article>
-              <article>
-                <strong>2. Забронируйте подарок</strong>
-                <span>Занятые идеи видны всем участникам подготовки.</span>
-              </article>
-              <article>
-                <strong>3. Обсудите детали</strong>
-                <span>Сообщения в секретном чате приходят сразу, без перезагрузки.</span>
-              </article>
-            </div>
-          </section>
-        </div>
-      </section>
-
-      <section id="reminders" class="view" data-section="reminders">
-        <section class="panel">
-          <div class="section-title">
-            <div>
-              <h2>Напоминания</h2>
-              <p>Уведомления появляются за 30, 7 и 1 день до дня рождения у друзей и участников групп.</p>
-            </div>
-            <div class="inline-controls">
-              <button id="refreshRemindersButton" type="button">Проверить</button>
-              <button id="readAllRemindersButton" class="secondary" type="button">Прочитать все</button>
-            </div>
-          </div>
-          <div id="remindersList" class="stack"></div>
-        </section>
-      </section>
-
-      <section id="people" class="view" data-section="people">
-        <div class="page-grid">
-          <section class="panel">
-            <div class="section-title">
-              <div>
-                <h2>Друзья</h2>
-                <p>Сначала добавьте человека в друзья. Только друзья попадают в секретный чат.</p>
-              </div>
-            </div>
-            <input id="peopleSearch" class="search" placeholder="Поиск по имени">
-            <div id="usersList" class="people-list"></div>
-          </section>
-
-          <section class="panel friend-card">
-            <div id="friendCardEmpty" class="empty-state">
-              <strong>Выберите друга</strong>
-              <span>Здесь появятся дата рождения, wishlist, группы и секретный чат.</span>
-            </div>
-            <div id="friendCardContent" class="hidden">
-              <div class="friend-header">
-                <div>
-                  <p class="eyebrow">Карточка друга</p>
-                  <h2 id="friendName"></h2>
-                  <p id="friendBirthDate" class="muted"></p>
-                </div>
-                <button id="subscribeFriendButton" type="button">Добавить друга</button>
-              </div>
-
-              <section class="friend-section">
-                <h3>Группы</h3>
-                <div id="friendGroups" class="chips"></div>
-              </section>
-
-              <section class="friend-section">
-                <h3>Желаемые подарки</h3>
-                <div id="friendWishes" class="stack"></div>
-              </section>
-
-              <section class="chat-box">
-                <div class="section-title">
-                  <div>
-                    <h3>Секретный чат</h3>
-                    <p id="chatStatus">История загрузится после выбора друга.</p>
-                  </div>
-                </div>
-                <div id="chatMessages" class="messages"></div>
-                <form id="chatForm" class="chat-form">
-                  <input name="text" placeholder="Предложить подарок или план" maxlength="2000" required>
-                  <button type="submit">Отправить</button>
-                </form>
-              </section>
-            </div>
-          </section>
-        </div>
-      </section>
-
-      <section id="groups" class="view" data-section="groups">
-        <div class="page-grid">
-          <section class="panel">
-            <div class="section-title">
-              <div>
-                <h2>Группы</h2>
-                <p>Общие списки для учебы, команды, семьи или компании друзей.</p>
-              </div>
-            </div>
-            <div id="groupsList" class="stack"></div>
-          </section>
-
-          <section class="panel form-panel">
-            <h2>Создать группу</h2>
-            <p class="muted">Создатель автоматически становится участником.</p>
-            <form id="createGroupForm" class="form-stack">
-              <input name="name" placeholder="Например, TSU Friends" required maxlength="160">
-              <button type="submit">Создать</button>
-            </form>
-          </section>
-        </div>
-      </section>
-
-      <section id="wishes" class="view" data-section="wishes">
-        <div class="page-grid">
-          <section class="panel">
-            <div class="section-title">
-              <div>
-                <h2>Мой список подарков</h2>
-                <p>Эти желания видят друзья в вашей карточке.</p>
-              </div>
-            </div>
-            <div id="myWishesList" class="stack"></div>
-          </section>
-
-          <section class="panel form-panel">
-            <h2>Добавить желание</h2>
-            <form id="createWishForm" class="form-stack">
-              <input name="title" placeholder="Название" required maxlength="160">
-              <textarea name="description" placeholder="Описание" maxlength="1000"></textarea>
-              <input name="link" type="url" placeholder="Ссылка на магазин" maxlength="500">
-              <label class="field">
-                <span>Приоритет</span>
-                <input name="priority" type="number" min="1" max="10" value="1" required>
-              </label>
-              <button type="submit">Опубликовать</button>
-            </form>
-          </section>
-        </div>
-      </section>
-    </main>
+      <div class="account">
+        <span id="accountName"></span>
+        <button type="button" class="link" id="logoutButton">Выйти</button>
+      </div>
+    </header>
+    <main id="screen" class="screen"></main>
   </div>
+
+  <dialog id="fundraiserDialog" class="dialog">
+    <form id="fundraiserForm" class="form" method="dialog">
+      <h2>Сбор на подарок</h2>
+      <p class="muted" id="fundraiserWish"></p>
+      <label>Название сбора<input name="title" maxlength="160" required></label>
+      <label>Сколько собрать, ₽<input name="targetAmount" type="number" min="1" step="1" required></label>
+      <div class="row-actions">
+        <button type="button" class="button" data-close-dialog>Отмена</button>
+        <button type="submit" class="button primary">Начать сбор</button>
+      </div>
+    </form>
+  </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/app.js"></script>

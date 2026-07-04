@@ -115,6 +115,7 @@ services:
 
   identityService:
     <<: *service
+    image: birthdayplatform/identity-service:local
     build:
       context: .
       dockerfile: identityService/Dockerfile
@@ -130,6 +131,7 @@ services:
 
   giftService:
     <<: *service
+    image: birthdayplatform/gift-service:local
     build:
       context: .
       dockerfile: giftService/Dockerfile
@@ -142,6 +144,7 @@ services:
 
   chatService:
     <<: *service
+    image: birthdayplatform/chat-service:local
     build:
       context: .
       dockerfile: chatService/Dockerfile
@@ -154,6 +157,7 @@ services:
 
   notificationService:
     <<: *service
+    image: birthdayplatform/notification-service:local
     build:
       context: .
       dockerfile: notificationService/Dockerfile
@@ -166,6 +170,7 @@ services:
 
   fundraiserService:
     <<: *service
+    image: birthdayplatform/fundraiser-service:local
     build:
       context: .
       dockerfile: fundraiserService/Dockerfile
@@ -180,6 +185,7 @@ services:
 
   bankService:
     <<: *service
+    image: birthdayplatform/bank-service:local
     build:
       context: .
       dockerfile: bankService/Dockerfile
@@ -192,6 +198,7 @@ services:
 
   apiGateway:
     <<: *service
+    image: birthdayplatform/api-gateway:local
     build:
       context: .
       dockerfile: apiGateway/Dockerfile

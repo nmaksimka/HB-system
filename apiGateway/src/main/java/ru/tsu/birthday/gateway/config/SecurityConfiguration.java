@@ -18,7 +18,7 @@ public class SecurityConfiguration {
                         .pathMatchers(HttpMethod.OPTIONS).permitAll()
                         .pathMatchers("/", "/index.html", "/app.js", "/styles.css", "/favicon.svg").permitAll()
                         .pathMatchers("/actuator/health/**", "/actuator/info").permitAll()
-                        .pathMatchers("/api/auth/**", "/ws", "/ws/**").permitAll()
+                        .pathMatchers("/auth/config", "/api/auth/**", "/ws", "/ws/**").permitAll()
                         .pathMatchers("/api/**").authenticated()
                         .anyExchange().denyAll()
                 )

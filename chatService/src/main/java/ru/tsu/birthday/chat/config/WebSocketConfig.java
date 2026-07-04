@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -32,11 +33,15 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final ChatService chatService;
     private final Clock clock;
 
-    public WebSocketConfig(JwtDecoder jwtDecoder, CurrentUser currentUser, ChatService chatService, Clock clock) {
+    private final String[] allowedOrigins;
+
+    public WebSocketConfig(JwtDecoder jwtDecoder, CurrentUser currentUser, ChatService chatService, Clock clock,
+                           @Value("${chat.allowed-origins}") String[] allowedOrigins) {
         this.jwtDecoder = jwtDecoder;
         this.currentUser = currentUser;
         this.chatService = chatService;
         this.clock = clock;
+        this.allowedOrigins = allowedOrigins;
     }
 
     @Override
@@ -46,7 +51,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        registry.addEndpoint("/ws");
+        registry.addEndpoint("/ws").setAllowedOrigins(allowedOrigins);
     }
 
     @Override
