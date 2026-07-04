@@ -1,5 +1,8 @@
 package ru.tsu.birthday.gift.service;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
@@ -19,7 +22,8 @@ import static org.mockito.Mockito.when;
 class WishServiceTest {
     private final WishRepository repository = mock(WishRepository.class);
     private final IdentityClient identityClient = mock(IdentityClient.class);
-    private final WishService service = new WishService(repository, identityClient);
+    private final Clock clock = Clock.fixed(Instant.parse("2026-01-01T10:00:00Z"), ZoneOffset.UTC);
+    private final WishService service = new WishService(repository, identityClient, clock);
 
     @Test
     void checksUserExistsBeforeAddingWish() {
@@ -52,5 +56,49 @@ class WishServiceTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> service.delete(attackerId, wishId));
         verify(repository, never()).delete(wish);
+    }
+
+    @Test
+    void reservesAnotherUsersWish() {
+        var ownerId = UUID.randomUUID();
+        var viewerId = UUID.randomUUID();
+        var wishId = UUID.randomUUID();
+        var wish = new Wish(wishId, ownerId, "Book", null, null, 1);
+        when(identityClient.exists(ownerId)).thenReturn(true);
+        when(identityClient.exists(viewerId)).thenReturn(true);
+        when(repository.findById(wishId)).thenReturn(Optional.of(wish));
+
+        var reserved = service.reserve(viewerId, ownerId, wishId);
+
+        org.assertj.core.api.Assertions.assertThat(reserved.getReservedBy()).isEqualTo(viewerId);
+        org.assertj.core.api.Assertions.assertThat(reserved.getReservedAt()).isEqualTo(clock.instant());
+    }
+
+    @Test
+    void rejectsReservingOwnWish() {
+        var ownerId = UUID.randomUUID();
+        var wishId = UUID.randomUUID();
+        var wish = new Wish(wishId, ownerId, "Book", null, null, 1);
+        when(identityClient.exists(ownerId)).thenReturn(true);
+        when(repository.findById(wishId)).thenReturn(Optional.of(wish));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> service.reserve(ownerId, ownerId, wishId));
+    }
+
+    @Test
+    void rejectsReservingWishTakenByAnotherUser() {
+        var ownerId = UUID.randomUUID();
+        var viewerId = UUID.randomUUID();
+        var reserverId = UUID.randomUUID();
+        var wishId = UUID.randomUUID();
+        var wish = new Wish(wishId, ownerId, "Book", null, null, 1);
+        wish.reserve(reserverId, clock.instant());
+        when(identityClient.exists(ownerId)).thenReturn(true);
+        when(identityClient.exists(viewerId)).thenReturn(true);
+        when(repository.findById(wishId)).thenReturn(Optional.of(wish));
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> service.reserve(viewerId, ownerId, wishId));
     }
 }
