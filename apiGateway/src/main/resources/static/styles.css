@@ -491,7 +491,7 @@ a {
   padding: 18px;
 }
 
-.quick-panel {
+.prep-panel {
   background: var(--surface-soft);
 }
 
@@ -544,6 +544,7 @@ a {
 }
 
 .person-row,
+.birthday-row,
 .wish-card,
 .reminder-card,
 .group-card {
@@ -551,6 +552,13 @@ a {
 }
 
 .person-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.birthday-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -631,44 +639,43 @@ a {
   font-size: 20px;
 }
 
-.guide-list {
+.action-summary {
   display: grid;
   gap: 12px;
-  margin: 0;
-  padding: 0;
-  counter-reset: guide;
-  list-style: none;
 }
 
-.guide-list li {
-  position: relative;
-  display: grid;
-  gap: 4px;
+.action-summary article {
   border: 1px solid #eadfce;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.62);
-  padding: 13px 14px 13px 52px;
+  background: rgba(255, 255, 255, 0.66);
+  padding: 14px;
 }
 
-.guide-list li::before {
-  position: absolute;
-  top: 13px;
-  left: 14px;
-  display: grid;
-  width: 26px;
-  height: 26px;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--coral);
-  color: #fff;
-  content: counter(guide);
-  counter-increment: guide;
-  font-size: 13px;
-  font-weight: 800;
+.action-summary strong,
+.action-summary span {
+  display: block;
 }
 
-.guide-list span {
+.action-summary span {
+  margin-top: 4px;
   color: var(--muted);
+}
+
+.reservation-label {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: #f2eee5;
+  color: #574d3f;
+  padding: 0 11px;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.reservation-label.own {
+  background: #e7f5ef;
+  color: var(--success);
 }
 
 .member-list {
@@ -819,12 +826,14 @@ a {
   }
 
   .person-row,
+  .birthday-row,
   .chat-form,
   .inline-controls {
     grid-template-columns: 1fr;
   }
 
   .person-row,
+  .birthday-row,
   .inline-controls {
     align-items: stretch;
   }
