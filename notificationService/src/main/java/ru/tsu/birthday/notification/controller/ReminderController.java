@@ -1,14 +1,14 @@
 package ru.tsu.birthday.notification.controller;
 
-import jakarta.validation.constraints.*;
+import java.util.List;
+import java.util.UUID;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
-import ru.tsu.birthday.notification.service.ReminderService;
 import ru.tsu.birthday.notification.dto.ReminderResponse;
 import ru.tsu.birthday.notification.mapper.ReminderMapper;
 import ru.tsu.birthday.notification.security.CurrentUser;
-import java.util.*;
+import ru.tsu.birthday.notification.service.ReminderService;
 
 @RestController
 @RequestMapping("/api/notifications")
@@ -24,19 +24,13 @@ public class ReminderController {
     }
 
     @PostMapping("/refresh")
-    List<ReminderResponse> refresh(@AuthenticationPrincipal Jwt jwt,
-                               @RequestParam(defaultValue = "14") @Min(1) @Max(365) int days) {
-        return service.refresh(currentUser.id(jwt), days).stream().map(mapper::toResponse).toList();
+    List<ReminderResponse> refresh(@AuthenticationPrincipal Jwt jwt) {
+        return service.refresh(currentUser.id(jwt)).stream().map(mapper::toResponse).toList();
     }
 
     @GetMapping
     List<ReminderResponse> reminders(@AuthenticationPrincipal Jwt jwt) {
         return service.reminders(currentUser.id(jwt)).stream().map(mapper::toResponse).toList();
-    }
-
-    @GetMapping("/unread")
-    List<ReminderResponse> unread(@AuthenticationPrincipal Jwt jwt) {
-        return service.unread(currentUser.id(jwt)).stream().map(mapper::toResponse).toList();
     }
 
     @PutMapping("/{reminderId}/read")
