@@ -15,6 +15,7 @@ public class Payment {
     @Column(nullable = false, precision = 12, scale = 2) private BigDecimal amount;
     @Column(name = "idempotency_key", nullable = false, length = 64) private String idempotencyKey;
     @Column(nullable = false) private Instant paidAt;
+    private Instant refundedAt;
 
     protected Payment() {}
 
@@ -28,7 +29,14 @@ public class Payment {
         this.paidAt = paidAt;
     }
 
+    public void refund(Instant timestamp) {
+        if (refundedAt == null) {
+            refundedAt = timestamp;
+        }
+    }
+
     public UUID getId() { return id; }
+    public Instant getRefundedAt() { return refundedAt; }
     public UUID getFundraiserId() { return fundraiserId; }
     public UUID getPayerId() { return payerId; }
     public BigDecimal getAmount() { return amount; }
